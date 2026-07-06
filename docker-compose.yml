@@ -1,0 +1,23 @@
+# Crw SSE PoC — full stack in containers.
+#   edge   : nginx, TLS + HTTP/2, serves React/Blazor, reverse-proxies SSE  -> https://localhost:8443
+#   server : ASP.NET Core SSE server (cleartext http, behind the edge)      -> http://localhost:5020 (direct API)
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    expose:
+      - "8080"
+    ports:
+      - "5020:8080"   # direct API / vanilla client over http, for debugging
+
+  edge:
+    build:
+      context: .
+      dockerfile: docker/edge.Dockerfile
+    ports:
+      - "8443:443"
+      - "8081:80"     # http -> redirects to 8443
+    depends_on:
+      - server

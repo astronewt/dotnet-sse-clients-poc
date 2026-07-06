@@ -1,0 +1,124 @@
+@page "/"
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
+@inject HttpClient Http
+@implements IDisposable
+
+<PageTitle>Blazor SSE client</PageTitle>
+
+<h1>Blazor SSE client</h1>
+<p>Consumes <code>/sse</code> in pure C# via a streaming <code>HttpClient</code>. Renders only on change; verifies order, loss and duplication.</p>
+
+<div class="bar">
+    <span>Connection:</span>
+    <span class="pill @(_status == "connected" ? "ok" : _status == "reconnecting" ? "bad" : "wait")">@_status</span>
+    <button @onclick="FireBurst">Burst 1000</button>
+</div>
+
+<div class="grid">
+    <div class="card"><div class="n">@_received</div><div class="l">events received</div></div>
+    <div class="card"><div class="n">@_lastSeq</div><div class="l">last seq</div></div>
+    <div class="card"><div class="n @(_gaps > 0 ? "bad-text" : "")">@_gaps</div><div class="l">gaps (loss)</div></div>
+    <div class="card"><div class="n @(_dupes > 0 ? "bad-text" : "")">@_dupes</div><div class="l">duplicates</div></div>
+    <div class="card"><div class="n @(_ooo > 0 ? "bad-text" : "")">@_ooo</div><div class="l">out of order</div></div>
+    <div class="card"><div class="n">@(_lastLatency?.ToString() ?? "–")</div><div class="l">latency ms (last)</div></div>
+</div>
+
+<table>
+    <thead><tr><th>Sensor</th><th>Value</th><th>Seq</th><th>Latency ms</th><th>Updates</th></tr></thead>
+    <tbody>
+        @foreach (var (id, r) in _sensors.OrderBy(x => x.Key))
+        {
+            <tr><td>@id</td><td>@r.Value</td><td>@r.Seq</td><td>@r.Latency</td><td>@r.Count×</td></tr>
+        }
+    </tbody>
+</table>
+
+@if (_received > 0)
+{
+    <p class="verdict">
+        @(_gaps == 0 && _dupes == 0 && _ooo == 0
+            ? "✅ Contiguous stream: no loss, no duplicates, correct order."
+            : "❌ Integrity problem detected — see counters above.")
+    </p>
+}
+
+@code {
+    record SensorEvent(long Seq, string SensorId, int Value, long Ts);
+    record Row(int Value, long Seq, long Latency, int Count);
+
+    static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    readonly Dictionary<string, Row> _sensors = new();
+    readonly CancellationTokenSource _cts = new();
+
+    string _status = "connecting";
+    int _received, _gaps, _dupes, _ooo;
+    long _lastSeq;
+    long? _lastLatency;
+
+    protected override void OnInitialized() => _ = ConsumeLoop(_cts.Token);
+
+    async Task ConsumeLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Consume(ct); }
+            catch (OperationCanceledException) { return; }
+            catch
+            {
+                _status = "reconnecting";
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(1000, ct);
+            }
+        }
+    }
+
+    async Task Consume(CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/sse");
+        if (_lastSeq > 0) request.Headers.TryAddWithoutValidation("Last-Event-ID", _lastSeq.ToString());
+        request.SetBrowserResponseStreamingEnabled(true); // stream instead of buffering the whole response
+
+        using var resp = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        _status = "connected";
+        await InvokeAsync(StateHasChanged);
+
+        using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        string? data = null;
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null) break;             // stream ended
+            if (line.StartsWith("data: ")) data = line[6..];
+            else if (line.Length == 0 && data is not null) { Handle(data); data = null; }
+            // ": keepalive", "id:" and "event:" lines need no special handling here
+        }
+    }
+
+    void Handle(string data)
+    {
+        var d = JsonSerializer.Deserialize<SensorEvent>(data, Json);
+        if (d is null) return;
+
+        if (_lastSeq != 0)
+        {
+            if (d.Seq == _lastSeq) _dupes++;
+            else if (d.Seq < _lastSeq) _ooo++;
+            else if (d.Seq > _lastSeq + 1) _gaps += (int)(d.Seq - _lastSeq - 1);
+        }
+        _lastSeq = Math.Max(_lastSeq, d.Seq);
+        _received++;
+        _lastLatency = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - d.Ts;
+
+        var count = _sensors.TryGetValue(d.SensorId, out var prev) ? prev.Count + 1 : 1;
+        _sensors[d.SensorId] = new Row(d.Value, d.Seq, _lastLatency.Value, count);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    async Task FireBurst() => await Http.PostAsync("/admin/burst?count=1000", null);
+
+    public void Dispose() { _cts.Cancel(); _cts.Dispose(); }
+}

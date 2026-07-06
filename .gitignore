@@ -1,0 +1,59 @@
+# ---------- .NET ----------
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userprefs
+project.lock.json
+artifacts/
+
+# Blazor / WASM publish output
+publish/
+*.publishsettings
+
+# ---------- Visual Studio / Rider / VS Code ----------
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# ---------- Node / React (clients/react) ----------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# npm / yarn / pnpm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ---------- Environment / secrets ----------
+.env
+.env.*
+!.env.example
+*.pfx
+*.key
+*.crt
+*.pem
+appsettings.*.local.json
+secrets.json
+
+# ---------- Docker ----------
+# (Dockerfiles and compose are tracked; only local override/artifacts are ignored)
+docker-compose.override.yml
+
+# ---------- OS / misc ----------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.log
+*.tmp

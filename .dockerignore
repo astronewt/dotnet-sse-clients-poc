@@ -1,0 +1,10 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.vs
+**/.git
+clients/blazor/bin
+clients/blazor/obj
+clients/react/node_modules
+clients/react/dist

@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/clients/" />
+  <Folder Name="/clients/blazor/">
+    <Project Path="clients/blazor/Crw.BlazorClient.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Crw.Server/Crw.Server.csproj" />
+  </Folder>
+</Solution>

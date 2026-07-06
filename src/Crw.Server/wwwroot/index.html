@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crw SSE PoC — SCRUM-5</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
+    a { color: #2563eb; }
+    code { background: #f1f5f9; padding: .1rem .35rem; border-radius: 4px; }
+    li { margin: .4rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Crw — SSE PoC (SCRUM-5)</h1>
+  <p>Server-to-front-end delivery over Server-Sent Events. Simulated sensor source runs in the server.</p>
+  <h2>Clients</h2>
+  <ul>
+    <li><a href="/vanilla/">Vanilla JS client</a> — also the HTTP/2 / burst test page.</li>
+    <li>React client — run <code>npm run dev</code> in <code>clients/react</code> (proxies to this server).</li>
+    <li>Blazor client — optional.</li>
+  </ul>
+  <h2>Endpoints</h2>
+  <ul>
+    <li><code>GET /sse</code> — event stream (<code>text/event-stream</code>).</li>
+    <li><code>POST /admin/burst?count=1000</code> — fire a burst.</li>
+    <li><code>GET /admin/stats</code> — emitted / skipped / subscribers.</li>
+  </ul>
+</body>
+</html>
