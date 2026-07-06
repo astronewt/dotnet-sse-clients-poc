@@ -3,10 +3,10 @@ using System.Threading.Channels;
 namespace Sse.Server;
 
 /// <summary>A change event pushed to clients. Seq is a global monotonic id. Online carries liveness.</summary>
-public record SensorEvent(long Seq, string SensorId, int Value, bool Online, bool Acknowledged, long Ts);
+public record SensorEvent(long Seq, string SensorId, int Value, bool Online, bool Acknowledged, bool Enabled, string Name, long Ts);
 
 /// <summary>Current state of one sensor, used to seed a newly connected client.</summary>
-public record SensorSnapshotItem(string SensorId, int Value, bool Online, bool Acknowledged, long Ts);
+public record SensorSnapshotItem(string SensorId, int Value, bool Online, bool Acknowledged, bool Enabled, string Name, long Ts);
 
 /// <summary>Full current state at a point in the seq stream. Client starts live tracking from Seq.</summary>
 public record Snapshot(long Seq, IReadOnlyList<SensorSnapshotItem> Sensors);
@@ -29,6 +29,8 @@ public sealed class SensorHub
         public int Value;
         public bool Online;
         public bool Acknowledged;   // operator has ack'd this sensor (client action -> server state)
+        public bool Enabled = true; // operator can disable (actuator-style command); disabled = stops reporting
+        public string Name = "";    // operator-set friendly label (command with a payload)
         public long LastSeenTs;
     }
 
@@ -66,6 +68,8 @@ public sealed class SensorHub
             var isNew = s is null;
             s ??= new State();
 
+            if (!isNew && !s.Enabled) return;         // disabled sensor: ignore readings (stays offline)
+
             var cameOnline = !s.Online;              // was offline or brand new
             var valueChanged = isNew || s.Value != value;
 
@@ -81,7 +85,7 @@ public sealed class SensorHub
                 return;
             }
 
-            evt = Append(sensorId, value, true, s.Acknowledged, now);
+            evt = Append(sensorId, value, true, s.Acknowledged, s.Enabled, s.Name, now);
             subs = _subscribers.ToArray();
         }
 
@@ -102,7 +106,7 @@ public sealed class SensorHub
                 if (s.Online && now - s.LastSeenTs > offlineAfterMs)
                 {
                     s.Online = false;
-                    (events ??= new()).Add(Append(id, s.Value, false, s.Acknowledged, now));
+                    (events ??= new()).Add(Append(id, s.Value, false, s.Acknowledged, s.Enabled, s.Name, now));
                 }
             }
             if (events is null) return;
@@ -142,7 +146,7 @@ public sealed class SensorHub
             else
             {
                 var items = _states
-                    .Select(kv => new SensorSnapshotItem(kv.Key, kv.Value.Value, kv.Value.Online, kv.Value.Acknowledged, kv.Value.LastSeenTs))
+                    .Select(kv => new SensorSnapshotItem(kv.Key, kv.Value.Value, kv.Value.Online, kv.Value.Acknowledged, kv.Value.Enabled, kv.Value.Name, kv.Value.LastSeenTs))
                     .OrderBy(i => i.SensorId, StringComparer.Ordinal)
                     .ToArray();
                 snapshot = new Snapshot(_seq, items);
@@ -154,9 +158,9 @@ public sealed class SensorHub
     }
 
     // Must be called under _gate.
-    private SensorEvent Append(string sensorId, int value, bool online, bool acknowledged, long ts)
+    private SensorEvent Append(string sensorId, int value, bool online, bool acknowledged, bool enabled, string name, long ts)
     {
-        var evt = new SensorEvent(++_seq, sensorId, value, online, acknowledged, ts);
+        var evt = new SensorEvent(++_seq, sensorId, value, online, acknowledged, enabled, name, ts);
         _history.Add(evt);
         if (_history.Count > MaxHistory)
             _history.RemoveRange(0, _history.Count - MaxHistory);
@@ -174,7 +178,20 @@ public sealed class SensorHub
     /// Toggle a sensor's acknowledged flag (a UI action) and broadcast the new state to every
     /// connected client. Returns false if the sensor is unknown.
     /// </summary>
-    public bool ToggleAck(string sensorId)
+    public bool ToggleAck(string sensorId) => Mutate(sensorId, s => s.Acknowledged = !s.Acknowledged);
+
+    /// <summary>Enable/disable a sensor (actuator-style command). Disabling takes it offline and stops its reporting.</summary>
+    public bool ToggleEnabled(string sensorId) => Mutate(sensorId, s =>
+    {
+        s.Enabled = !s.Enabled;
+        if (!s.Enabled) s.Online = false;   // disabled -> immediately offline
+    });
+
+    /// <summary>Set a sensor's friendly name (a command carrying a payload).</summary>
+    public bool SetName(string sensorId, string name) => Mutate(sensorId, s => s.Name = name ?? "");
+
+    // Apply a state change under the lock, then broadcast the new state to all clients.
+    private bool Mutate(string sensorId, Action<State> change)
     {
         SensorEvent evt;
         Channel<SensorEvent>[] subs;
@@ -182,8 +199,8 @@ public sealed class SensorHub
         lock (_gate)
         {
             if (!_states.TryGetValue(sensorId, out var s)) return false;
-            s.Acknowledged = !s.Acknowledged;
-            evt = Append(sensorId, s.Value, s.Online, s.Acknowledged, Now());
+            change(s);
+            evt = Append(sensorId, s.Value, s.Online, s.Acknowledged, s.Enabled, s.Name, Now());
             subs = _subscribers.ToArray();
         }
 

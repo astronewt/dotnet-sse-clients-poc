@@ -35,3 +35,22 @@
 .tile:hover { border-color: #94a3b8; }
 .tile.ack { outline: 2px solid #f59e0b; outline-offset: -2px; }
 .tile .ackbadge { position: absolute; bottom: .35rem; right: .4rem; color: #f59e0b; font-weight: 700; font-size: .8rem; }
+
+/* selection, disable, rename panel, chaos buttons */
+.crw { user-select: none; }
+.bar .sep { width: 1px; height: 22px; background: #e2e8f0; margin: 0 .2rem; }
+.bar button.chaos { border-color: #fca5a5; color: #991b1b; }
+.bar button.chaos:hover { background: #fef2f2; }
+
+.tile.selected { outline: 2px solid #3b82f6; outline-offset: -2px; }
+.tile.disabled { opacity: .55; border-style: dashed; }
+.tile.disabled .dot { background: #94a3b8; }
+
+.panel { border: 1px solid #cbd5e1; border-radius: 8px; padding: .6rem .8rem; margin: .5rem 0; background: #f8fafc; }
+.panel-title strong { font-size: 1rem; }
+.panel .muted { color: #64748b; font-size: .85rem; margin-left: .5rem; }
+.panel-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
+.panel-actions button { font: inherit; padding: .35rem .7rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+.panel-actions button:hover { background: #f1f5f9; }
+.panel-actions button.ghost { color: #64748b; border-color: transparent; }
+.panel-actions input { font: inherit; padding: .35rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px; user-select: text; }

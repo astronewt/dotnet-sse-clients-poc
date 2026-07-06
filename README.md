@@ -2,7 +2,7 @@
 
 Proof of concept: real-time server-to-front-end updates over Server-Sent Events, with hundreds of sensors and live online/offline status.
 
-Docs: [PLAN.md](PLAN.md) (plan + decision log) · [RESULTS.md](RESULTS.md) (validation) · [CLIENTS.md](CLIENTS.md) (client comparison) · [.claude/project-log.md](.claude/project-log.md) (running log).
+Docs: [PLAN.md](PLAN.md) (plan + decision log) · [RESULTS.md](RESULTS.md) (validation) · [CLIENTS.md](CLIENTS.md) (client comparison) · [AUTH.md](AUTH.md) (authenticating the stream — browser vs desktop) · [.claude/project-log.md](.claude/project-log.md) (running log).
 
 ## Layout
 
@@ -57,7 +57,9 @@ First time for HTTPS: `dotnet dev-certs https --trust`.
 |---|---|
 | `GET /sse` | Event stream (`text/event-stream`). Emits a `snapshot` then live `sensor` events. Honors `Last-Event-ID` / `?lastEventId=`. |
 | `GET /admin/stats` | `emitted` / `skipped` / `subscribers` / `total` / `online` / `offline`. |
-| `POST /sensors/{id}/ack` | **Client action** — toggle a sensor's acknowledged flag; broadcast to all clients. |
+| `POST /sensors/{id}/ack` | **Client action** — toggle acknowledged; broadcast to all clients. |
+| `POST /sensors/{id}/toggle` | **Client action** — enable/disable a sensor (disabled stops reporting). |
+| `POST /sensors/{id}/name?name=…` | **Client action** — set a friendly name; broadcast to all clients. |
 | `POST /admin/burst?count=1000` | Fire a burst of change events (load test). |
 | `POST /admin/chaos/drop` | **Signal loss** — drop all live connections; clients reconnect + resume. |
 | `POST /admin/chaos/outage?seconds=10` | **Downtime** — `/sse` returns 503 for the window, then recovers. |

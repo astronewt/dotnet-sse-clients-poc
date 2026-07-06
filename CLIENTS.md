@@ -98,6 +98,8 @@ The browser `EventSource` API (used by the vanilla and React clients) is **GET-o
 
 The **Blazor `HttpClient` approach has no such limit** — it sets headers directly. If the real system needs authenticated streams and you stay browser-based, budget for one of the workarounds above; if you go native/desktop, it's a non-issue.
 
+**➡️ This is analysed in depth — for both browser-based and desktop-based deployments — in [AUTH.md](AUTH.md).** Auth is often the deciding factor between the client options, so read that before committing.
+
 ## HTTP/2 note
 
 The browser 6-connections-per-domain limit only affects the browser clients (vanilla, React) — and HTTP/2 (via the edge) removes it by multiplexing. A native/desktop .NET client isn't subject to that browser limit at all.

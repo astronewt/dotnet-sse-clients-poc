@@ -7,6 +7,9 @@
         <span>Connection:</span>
         <span class="pill @(_status == "connected" ? "ok" : _status == "reconnecting" ? "bad" : "wait")">@_status</span>
         <button @onclick="() => Sse.FireBurstAsync()">Burst 1000</button>
+        <span class="sep"></span>
+        <button class="chaos" @onclick="() => Sse.OutageAsync(10)">Simulate outage (10s)</button>
+        <button class="chaos" @onclick="() => Sse.DropAsync()">Drop connections</button>
     </div>
 
     <div class="stats">
@@ -20,13 +23,31 @@
         <div class="stat"><b class="@(_ooo > 0 ? "bad-text" : "")">@_ooo</b><span class="l">out of order</span></div>
     </div>
 
+    @if (_selected is not null && _sensors.TryGetValue(_selected, out var sel))
+    {
+        <div class="panel">
+            <div class="panel-title">
+                <strong>@(string.IsNullOrEmpty(sel.Name) ? _selected : sel.Name)</strong>
+                <span class="muted">@_selected · value @sel.Value ·
+                    @(!sel.Enabled ? "disabled" : sel.Online ? "online" : "offline")@(sel.Acknowledged ? " · acknowledged" : "")</span>
+            </div>
+            <div class="panel-actions">
+                <button @onclick="() => Sse.AckAsync(_selected!)">@(sel.Acknowledged ? "Un-acknowledge" : "Acknowledge")</button>
+                <button @onclick="() => Sse.ToggleEnabledAsync(_selected!)">@(sel.Enabled ? "Disable" : "Enable")</button>
+                <input @bind="_renameText" @bind:event="oninput" placeholder="new name" />
+                <button @onclick="() => Sse.RenameAsync(_selected!, _renameText)">Rename</button>
+                <button class="ghost" @onclick="() => _selected = null">Close</button>
+            </div>
+        </div>
+    }
+
     <div class="grid">
         @foreach (var (id, s) in _ordered)
         {
-            <div class="tile @(s.Online ? "" : "off") @(s.Acknowledged ? "ack" : "")"
-                 @onclick="() => Sse.AckAsync(id)" title="Click to acknowledge / un-acknowledge">
+            <div class="tile @(s.Online ? "" : "off") @(!s.Enabled ? "disabled" : "") @(s.Acknowledged ? "ack" : "") @(id == _selected ? "selected" : "")"
+                 @onclick="() => Select(id)" title="Click to select">
                 <div class="dot"></div>
-                <div class="id">@id</div>
+                <div class="id">@(string.IsNullOrEmpty(s.Name) ? id : s.Name)</div>
                 <div class="v">@s.Value</div>
                 @if (s.Acknowledged) { <div class="ackbadge">✓</div> }
             </div>
@@ -42,7 +63,7 @@
 </div>
 
 @code {
-    struct S { public int Value; public bool Online; public bool Acknowledged; }
+    struct S { public int Value; public bool Online; public bool Acknowledged; public bool Enabled; public string Name; }
     sealed record Toast(int Id, string SensorId, long ExpiresAtTick);
 
     const int ToastLifetimeTicks = 40;  // ~4s at 100ms render ticks
@@ -54,10 +75,18 @@
     readonly CancellationTokenSource _cts = new();
 
     string _status = "connecting";
+    string? _selected;
+    string _renameText = "";
     int _received, _gaps, _dupes, _ooo, _online, _toastId;
     long _lastSeq, _tick;
     long? _lastLatency;
     bool _dirty = true;
+
+    void Select(string id)
+    {
+        _selected = id;
+        _renameText = _sensors.TryGetValue(id, out var s) ? s.Name : "";
+    }
 
     protected override void OnInitialized()
     {
@@ -73,7 +102,7 @@
         _sensors.Clear(); _online = 0;
         foreach (var s in snap.Sensors)
         {
-            _sensors[s.SensorId] = new S { Value = s.Value, Online = s.Online, Acknowledged = s.Acknowledged };
+            _sensors[s.SensorId] = new S { Value = s.Value, Online = s.Online, Acknowledged = s.Acknowledged, Enabled = s.Enabled, Name = s.Name };
             if (s.Online) _online++;
         }
         _dirty = true;
@@ -94,11 +123,11 @@
 
         var existed = _sensors.TryGetValue(d.SensorId, out var prev);
         var wasOnline = existed && prev.Online;
-        _sensors[d.SensorId] = new S { Value = d.Value, Online = d.Online, Acknowledged = d.Acknowledged };
+        _sensors[d.SensorId] = new S { Value = d.Value, Online = d.Online, Acknowledged = d.Acknowledged, Enabled = d.Enabled, Name = d.Name };
         if (wasOnline != d.Online) _online += d.Online ? 1 : -1;
 
-        // Toast on going offline — unless already acknowledged.
-        if (existed && wasOnline && !d.Online && !d.Acknowledged) AddToast(d.SensorId);
+        // Toast on going offline — unless acknowledged or intentionally disabled.
+        if (existed && wasOnline && !d.Online && !d.Acknowledged && d.Enabled) AddToast(d.SensorId);
 
         _dirty = true;
         return Task.CompletedTask;

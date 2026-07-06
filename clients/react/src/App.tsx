@@ -1,11 +1,19 @@
-import { memo } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { useSse, type Sensor } from './useSse'
 import './App.css'
 
+const post = (url: string) => fetch(url, { method: 'POST' })
+
 export default function App() {
   const s = useSse()
-  const fireBurst = () => fetch('/admin/burst?count=1000', { method: 'POST' })
-  const ack = (id: string) => fetch(`/sensors/${encodeURIComponent(id)}/ack`, { method: 'POST' })
+  const [selected, setSelected] = useState<string | null>(null)
+  const [rename, setRename] = useState('')
+
+  const sel = selected ? s.sensors.find(x => x.id === selected) : undefined
+  // keep the rename box in sync when the selection changes
+  useEffect(() => { setRename(sel?.name ?? '') }, [selected])
+
+  const enc = encodeURIComponent
 
   return (
     <main>
@@ -16,7 +24,10 @@ export default function App() {
         <span>Connection:</span>
         <span className={`pill ${s.status === 'connected' ? 'ok' : s.status === 'reconnecting' ? 'bad' : 'wait'}`}>{s.status}</span>
         <span className={`pill ${s.protocol === 'h2' ? 'ok' : 'wait'}`}>protocol: {s.protocol}</span>
-        <button onClick={fireBurst}>Burst 1000</button>
+        <button onClick={() => post('/admin/burst?count=1000')}>Burst 1000</button>
+        <span className="sep" />
+        <button className="chaos" onClick={() => post('/admin/chaos/outage?seconds=10')}>Simulate outage (10s)</button>
+        <button className="chaos" onClick={() => post('/admin/chaos/drop')}>Drop connections</button>
       </div>
 
       <div className="stats">
@@ -30,8 +41,29 @@ export default function App() {
         <Stat n={s.outOfOrder} label="out of order" bad={s.outOfOrder > 0} />
       </div>
 
+      {sel && (
+        <div className="panel">
+          <div className="panel-title">
+            <strong>{sel.name || sel.id}</strong>
+            <span className="muted">
+              {sel.id} · value {sel.value} · {!sel.enabled ? 'disabled' : sel.online ? 'online' : 'offline'}
+              {sel.acknowledged ? ' · acknowledged' : ''}
+            </span>
+          </div>
+          <div className="panel-actions">
+            <button onClick={() => post(`/sensors/${enc(sel.id)}/ack`)}>{sel.acknowledged ? 'Un-acknowledge' : 'Acknowledge'}</button>
+            <button onClick={() => post(`/sensors/${enc(sel.id)}/toggle`)}>{sel.enabled ? 'Disable' : 'Enable'}</button>
+            <input value={rename} onChange={e => setRename(e.target.value)} placeholder="new name" />
+            <button onClick={() => post(`/sensors/${enc(sel.id)}/name?name=${enc(rename)}`)}>Rename</button>
+            <button className="ghost" onClick={() => setSelected(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
       <div className="grid">
-        {s.sensors.map(sensor => <Tile key={sensor.id} sensor={sensor} onAck={ack} />)}
+        {s.sensors.map(sensor => (
+          <Tile key={sensor.id} sensor={sensor} selected={sensor.id === selected} onSelect={setSelected} />
+        ))}
       </div>
 
       <div className="toasts">
@@ -43,16 +75,13 @@ export default function App() {
   )
 }
 
-// Memoized so only tiles whose value/online/acknowledged actually changed re-render.
-const Tile = memo(function Tile({ sensor, onAck }: { sensor: Sensor; onAck: (id: string) => void }) {
+// Memoized so only tiles whose state or selection actually changed re-render.
+const Tile = memo(function Tile({ sensor, selected, onSelect }: { sensor: Sensor; selected: boolean; onSelect: (id: string) => void }) {
+  const cls = `tile ${sensor.online ? '' : 'off'} ${sensor.enabled ? '' : 'disabled'} ${sensor.acknowledged ? 'ack' : ''} ${selected ? 'selected' : ''}`
   return (
-    <div
-      className={`tile ${sensor.online ? '' : 'off'} ${sensor.acknowledged ? 'ack' : ''}`}
-      onClick={() => onAck(sensor.id)}
-      title="Click to acknowledge / un-acknowledge"
-    >
+    <div className={cls} onClick={() => onSelect(sensor.id)} title="Click to select">
       <div className="dot" />
-      <div className="id">{sensor.id}</div>
+      <div className="id">{sensor.name || sensor.id}</div>
       <div className="v">{sensor.value}</div>
       {sensor.acknowledged && <div className="ackbadge">✓</div>}
     </div>

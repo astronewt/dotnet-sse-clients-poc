@@ -18,8 +18,16 @@ public sealed class SseSensorClient(HttpClient http, SseRequestConfigurator? con
 
     public Task FireBurstAsync(int count = 1000) => http.PostAsync($"/admin/burst?count={count}", null);
 
-    /// <summary>UI action: toggle a sensor's acknowledged flag; the server broadcasts the change to all clients.</summary>
-    public Task AckAsync(string sensorId) => http.PostAsync($"/sensors/{Uri.EscapeDataString(sensorId)}/ack", null);
+    // UI actions -> server state change -> broadcast to all clients.
+    public Task AckAsync(string sensorId) => http.PostAsync($"/sensors/{Enc(sensorId)}/ack", null);
+    public Task ToggleEnabledAsync(string sensorId) => http.PostAsync($"/sensors/{Enc(sensorId)}/toggle", null);
+    public Task RenameAsync(string sensorId, string name) => http.PostAsync($"/sensors/{Enc(sensorId)}/name?name={Uri.EscapeDataString(name)}", null);
+
+    // Chaos triggers.
+    public Task DropAsync() => http.PostAsync("/admin/chaos/drop", null);
+    public Task OutageAsync(int seconds = 10) => http.PostAsync($"/admin/chaos/outage?seconds={seconds}", null);
+
+    private static string Enc(string s) => Uri.EscapeDataString(s);
 
     /// <param name="lastSeq">Provider for the resume point (client's highest seen seq).</param>
     public async Task RunAsync(

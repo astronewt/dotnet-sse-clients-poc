@@ -5,11 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Vanilla SSE client — SCRUM-5</title>
   <style>
-    body { font: 15px/1.5 system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; color: #0f172a; }
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; color: #0f172a; user-select: none; }
     h1 { font-size: 1.4rem; margin-bottom: .25rem; }
     .bar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
     button { font: inherit; padding: .4rem .8rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
     button:hover { background: #f8fafc; }
+    button.chaos { border-color: #fca5a5; color: #991b1b; }
+    button.chaos:hover { background: #fef2f2; }
+    .sep { width: 1px; height: 22px; background: #e2e8f0; margin: 0 .2rem; }
     .pill { padding: .15rem .6rem; border-radius: 999px; font-size: .85rem; font-weight: 600; }
     .ok { background: #dcfce7; color: #166534; }
     .bad { background: #fee2e2; color: #991b1b; }
@@ -17,17 +20,25 @@
     .stats { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: .5rem 0 1rem; font-variant-numeric: tabular-nums; }
     .stats b { font-size: 1.3rem; display: block; }
     .stats .l { font-size: .75rem; color: #64748b; text-transform: uppercase; letter-spacing: .03em; }
+    .panel { border: 1px solid #cbd5e1; border-radius: 8px; padding: .6rem .8rem; margin: .5rem 0; background: #f8fafc; }
+    .panel .muted { color: #64748b; font-size: .85rem; margin-left: .5rem; }
+    .panel-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
+    .panel-actions input { font: inherit; padding: .35rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px; user-select: text; }
+    .panel-actions button.ghost { color: #64748b; border-color: transparent; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
-    .tile { border: 1px solid #e2e8f0; border-radius: 8px; padding: .45rem .5rem; position: relative; }
-    .tile .id { font-size: .68rem; color: #64748b; }
+    .tile { border: 1px solid #e2e8f0; border-radius: 8px; padding: .45rem .5rem; position: relative; cursor: pointer; }
+    .tile:hover { border-color: #94a3b8; }
+    .tile .id { font-size: .68rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tile .v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .tile .dot { position: absolute; top: .5rem; right: .5rem; width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
     .tile.off { background: #f8fafc; color: #94a3b8; }
     .tile.off .v { color: #94a3b8; }
     .tile.off .dot { background: #ef4444; }
-    .tile { cursor: pointer; }
-    .tile:hover { border-color: #94a3b8; }
+    .tile.disabled { opacity: .55; border-style: dashed; }
+    .tile.disabled .dot { background: #94a3b8; }
+    .tile.selected { outline: 2px solid #3b82f6; outline-offset: -2px; }
     .tile.ack { outline: 2px solid #f59e0b; outline-offset: -2px; }
+    .tile.ack.selected { outline-color: #3b82f6; }
     .tile .ackbadge { display: none; position: absolute; bottom: .35rem; right: .4rem; color: #f59e0b; font-weight: 700; font-size: .8rem; }
     .tile.ack .ackbadge { display: block; }
     .tile.flash { animation: flash .5s ease-out; }
@@ -45,7 +56,9 @@
     <span>Connection:</span> <span id="state" class="pill wait">connecting…</span>
     <span id="proto" class="pill wait">protocol: ?</span>
     <button id="burst">Burst 1000</button>
-    <button id="reconnect">Force reconnect</button>
+    <span class="sep"></span>
+    <button class="chaos" id="outage">Simulate outage (10s)</button>
+    <button class="chaos" id="drop">Drop connections</button>
   </div>
 
   <div class="stats">
@@ -59,39 +72,72 @@
     <div><b id="s-ooo">0</b><span class="l">out of order</span></div>
   </div>
 
+  <div id="panel" class="panel" hidden></div>
+
   <div class="grid" id="grid"></div>
 
   <div class="toasts" id="toasts"></div>
 
   <script>
     const $ = id => document.getElementById(id);
-    const grid = $('grid');
-    const tiles = new Map();   // sensorId -> { el, vEl, online }
-    let received = 0, lastSeq = 0, gaps = 0, dupes = 0, ooo = 0, online = 0;
+    const grid = $('grid'), panel = $('panel');
+    const tiles = new Map();   // sensorId -> { el, vEl, idEl, value, online, acknowledged, enabled, name }
+    let received = 0, lastSeq = 0, gaps = 0, dupes = 0, ooo = 0, online = 0, selected = null;
 
     const setPill = (el, text, cls) => { el.textContent = text; el.className = 'pill ' + cls; };
+    const post = url => fetch(url, { method: 'POST' });
+    const label = t => t.name || t.id;
 
-    function upsertTile(id, value, isOnline, isAck, flash) {
+    function upsertTile(id, d, flash) {
       let t = tiles.get(id);
       if (!t) {
         const el = document.createElement('div');
         el.className = 'tile';
-        el.title = 'Click to acknowledge / un-acknowledge';
-        el.innerHTML = `<div class="dot"></div><div class="id">${id}</div><div class="v"></div><div class="ackbadge">✓</div>`;
-        el.addEventListener('click', () => fetch('/sensors/' + encodeURIComponent(id) + '/ack', { method: 'POST' }));
+        el.title = 'Click to select';
+        el.innerHTML = `<div class="dot"></div><div class="id"></div><div class="v"></div><div class="ackbadge">✓</div>`;
+        el.addEventListener('click', () => select(id));
         grid.appendChild(el);
-        t = { el, vEl: el.querySelector('.v'), online: true };
+        t = { id, el, vEl: el.querySelector('.v'), idEl: el.querySelector('.id'), online: true };
         tiles.set(id, t);
         online++;
       }
-      t.vEl.textContent = value;
-      if (t.online !== isOnline) {
-        t.online = isOnline;
-        online += isOnline ? 1 : -1;
-      }
-      t.el.classList.toggle('off', !isOnline);
-      t.el.classList.toggle('ack', isAck);
+      t.value = d.value; t.acknowledged = d.acknowledged; t.enabled = d.enabled; t.name = d.name;
+      t.vEl.textContent = d.value;
+      t.idEl.textContent = label(t);
+      if (t.online !== d.online) { t.online = d.online; online += d.online ? 1 : -1; }
+      t.el.classList.toggle('off', !d.online);
+      t.el.classList.toggle('disabled', !d.enabled);
+      t.el.classList.toggle('ack', d.acknowledged);
+      t.el.classList.toggle('selected', id === selected);
       if (flash) { t.el.classList.remove('flash'); void t.el.offsetWidth; t.el.classList.add('flash'); }
+    }
+
+    function select(id) {
+      if (selected && tiles.has(selected)) tiles.get(selected).el.classList.remove('selected');
+      selected = id;
+      if (tiles.has(id)) tiles.get(id).el.classList.add('selected');
+      renderPanel();
+    }
+
+    function renderPanel() {
+      const t = selected && tiles.get(selected);
+      if (!t) { panel.hidden = true; return; }
+      panel.hidden = false;
+      const status = !t.enabled ? 'disabled' : t.online ? 'online' : 'offline';
+      panel.innerHTML =
+        `<div><strong>${label(t)}</strong><span class="muted">${t.id} · value ${t.value} · ${status}${t.acknowledged ? ' · acknowledged' : ''}</span></div>
+         <div class="panel-actions">
+           <button data-a="ack">${t.acknowledged ? 'Un-acknowledge' : 'Acknowledge'}</button>
+           <button data-a="toggle">${t.enabled ? 'Disable' : 'Enable'}</button>
+           <input id="rename" placeholder="new name" value="${(t.name || '').replace(/"/g, '&quot;')}" />
+           <button data-a="rename">Rename</button>
+           <button class="ghost" data-a="close">Close</button>
+         </div>`;
+      const id = encodeURIComponent(t.id);
+      panel.querySelector('[data-a=ack]').onclick = () => post(`/sensors/${id}/ack`);
+      panel.querySelector('[data-a=toggle]').onclick = () => post(`/sensors/${id}/toggle`);
+      panel.querySelector('[data-a=rename]').onclick = () => post(`/sensors/${id}/name?name=${encodeURIComponent($('rename').value)}`);
+      panel.querySelector('[data-a=close]').onclick = () => select(null);
     }
 
     function renderStats() {
@@ -108,8 +154,8 @@
       const d = JSON.parse(e.data);
       lastSeq = d.seq;                          // start integrity tracking from here
       grid.innerHTML = ''; tiles.clear(); online = 0;
-      for (const s of d.sensors) upsertTile(s.sensorId, s.value, s.online, s.acknowledged, false);
-      renderStats();
+      for (const s of d.sensors) upsertTile(s.sensorId, s, false);
+      renderStats(); renderPanel();
     }
 
     function onSensor(e) {
@@ -123,8 +169,10 @@
       received++;
       $('s-lat').textContent = Date.now() - d.ts;
       const prev = tiles.get(d.sensorId);
-      if (prev && prev.online && !d.online && !d.acknowledged) showToast(d.sensorId);   // offline & unacknowledged
-      upsertTile(d.sensorId, d.value, d.online, d.acknowledged, true);
+      // Toast when a sensor drops — unless acknowledged or intentionally disabled.
+      if (prev && prev.online && !d.online && !d.acknowledged && d.enabled) showToast(d.sensorId);
+      upsertTile(d.sensorId, d, true);
+      if (d.sensorId === selected) renderPanel();
       renderStats();
     }
 
@@ -154,8 +202,9 @@
       setPill($('proto'), 'protocol: ' + proto, proto === 'h2' ? 'ok' : 'wait');
     }, 1500);
 
-    $('burst').onclick = () => fetch('/admin/burst?count=1000', { method: 'POST' });
-    $('reconnect').onclick = () => { es.close(); connect(); };
+    $('burst').onclick = () => post('/admin/burst?count=1000');
+    $('outage').onclick = () => post('/admin/chaos/outage?seconds=10');
+    $('drop').onclick = () => post('/admin/chaos/drop');
   </script>
 </body>
 </html>

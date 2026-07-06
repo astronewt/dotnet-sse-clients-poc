@@ -121,9 +121,13 @@ app.MapPost("/admin/burst", (SensorHub hub, int count = 1000) =>
 
 app.MapGet("/admin/stats", (SensorHub hub) => Results.Ok(hub.Stats()));
 
-// Client action -> server state change -> broadcast to all clients.
+// Client actions -> server state change -> broadcast to all clients.
 app.MapPost("/sensors/{id}/ack", (SensorHub hub, string id) =>
-    hub.ToggleAck(id) ? Results.Ok(new { id, toggled = true }) : Results.NotFound(new { id }));
+    hub.ToggleAck(id) ? Results.Ok(new { id, ok = true }) : Results.NotFound(new { id }));
+app.MapPost("/sensors/{id}/toggle", (SensorHub hub, string id) =>
+    hub.ToggleEnabled(id) ? Results.Ok(new { id, ok = true }) : Results.NotFound(new { id }));
+app.MapPost("/sensors/{id}/name", (SensorHub hub, string id, string? name) =>
+    hub.SetName(id, name ?? "") ? Results.Ok(new { id, ok = true }) : Results.NotFound(new { id }));
 
 // Chaos hooks: trigger resilience scenarios on demand.
 app.MapPost("/admin/chaos/drop", (SensorHub hub) => Results.Ok(new { dropped = hub.DropAll() }));
