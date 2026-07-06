@@ -57,6 +57,7 @@ First time for HTTPS: `dotnet dev-certs https --trust`.
 |---|---|
 | `GET /sse` | Event stream (`text/event-stream`). Emits a `snapshot` then live `sensor` events. Honors `Last-Event-ID` / `?lastEventId=`. |
 | `GET /admin/stats` | `emitted` / `skipped` / `subscribers` / `total` / `online` / `offline`. |
+| `POST /sensors/{id}/ack` | **Client action** — toggle a sensor's acknowledged flag; broadcast to all clients. |
 | `POST /admin/burst?count=1000` | Fire a burst of change events (load test). |
 | `POST /admin/chaos/drop` | **Signal loss** — drop all live connections; clients reconnect + resume. |
 | `POST /admin/chaos/outage?seconds=10` | **Downtime** — `/sse` returns 503 for the window, then recovers. |
@@ -69,6 +70,7 @@ Config (env vars):
 ## Key design points
 
 - **Hundreds of sensors + liveness** — a sensor goes offline when it stops reporting; clients get a full **snapshot** on connect, then live deltas + online/offline transitions. All clients show a toast when a sensor drops.
+- **Bidirectional** — click any tile to **acknowledge** it. The action `POST`s to the server, which flips the state and broadcasts it, so every connected client (browser or desktop) converges instantly. Acked sensors show an amber ✓ and suppress the offline toast.
 - **Change filtering** — the hub skips unchanged readings, so clients render only real changes.
 - **Ordering / integrity** — every event carries a global, contiguous `seq`; clients detect loss (gap), duplication (repeat), reordering.
 - **Resilient resume** — reconnects replay missed events via `Last-Event-ID`; if the resume point has aged out (or the server restarted), the client is re-seeded with a fresh snapshot instead of a gappy backlog.

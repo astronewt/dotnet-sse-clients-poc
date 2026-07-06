@@ -23,10 +23,12 @@
     <div class="grid">
         @foreach (var (id, s) in _ordered)
         {
-            <div class="tile @(s.Online ? "" : "off")">
+            <div class="tile @(s.Online ? "" : "off") @(s.Acknowledged ? "ack" : "")"
+                 @onclick="() => Sse.AckAsync(id)" title="Click to acknowledge / un-acknowledge">
                 <div class="dot"></div>
                 <div class="id">@id</div>
                 <div class="v">@s.Value</div>
+                @if (s.Acknowledged) { <div class="ackbadge">✓</div> }
             </div>
         }
     </div>
@@ -40,7 +42,7 @@
 </div>
 
 @code {
-    struct S { public int Value; public bool Online; }
+    struct S { public int Value; public bool Online; public bool Acknowledged; }
     sealed record Toast(int Id, string SensorId, long ExpiresAtTick);
 
     const int ToastLifetimeTicks = 40;  // ~4s at 100ms render ticks
@@ -71,7 +73,7 @@
         _sensors.Clear(); _online = 0;
         foreach (var s in snap.Sensors)
         {
-            _sensors[s.SensorId] = new S { Value = s.Value, Online = s.Online };
+            _sensors[s.SensorId] = new S { Value = s.Value, Online = s.Online, Acknowledged = s.Acknowledged };
             if (s.Online) _online++;
         }
         _dirty = true;
@@ -92,10 +94,11 @@
 
         var existed = _sensors.TryGetValue(d.SensorId, out var prev);
         var wasOnline = existed && prev.Online;
-        _sensors[d.SensorId] = new S { Value = d.Value, Online = d.Online };
+        _sensors[d.SensorId] = new S { Value = d.Value, Online = d.Online, Acknowledged = d.Acknowledged };
         if (wasOnline != d.Online) _online += d.Online ? 1 : -1;
 
-        if (existed && wasOnline && !d.Online) AddToast(d.SensorId);   // just went offline
+        // Toast on going offline — unless already acknowledged.
+        if (existed && wasOnline && !d.Online && !d.Acknowledged) AddToast(d.SensorId);
 
         _dirty = true;
         return Task.CompletedTask;

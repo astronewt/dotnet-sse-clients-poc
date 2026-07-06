@@ -4,6 +4,7 @@ export interface Sensor {
   id: string
   value: number
   online: boolean
+  acknowledged: boolean
 }
 
 export interface Toast {
@@ -26,8 +27,8 @@ export interface SseState {
   toasts: Toast[]
 }
 
-interface SensorMsg { seq: number; sensorId: string; value: number; online: boolean; ts: number }
-interface SnapshotMsg { seq: number; sensors: { sensorId: string; value: number; online: boolean; ts: number }[] }
+interface SensorMsg { seq: number; sensorId: string; value: number; online: boolean; acknowledged: boolean; ts: number }
+interface SnapshotMsg { seq: number; sensors: { sensorId: string; value: number; online: boolean; acknowledged: boolean; ts: number }[] }
 
 /**
  * Subscribes to the SSE stream. Handles the initial `snapshot` (hundreds of sensors at once)
@@ -60,7 +61,7 @@ export function useSse(url = '/sse'): SseState {
       const d: SnapshotMsg = JSON.parse(e.data)
       meta.current.lastSeq = d.seq
       const m = new Map<string, Sensor>()
-      for (const s of d.sensors) m.set(s.sensorId, { id: s.sensorId, value: s.value, online: s.online })
+      for (const s of d.sensors) m.set(s.sensorId, { id: s.sensorId, value: s.value, online: s.online, acknowledged: s.acknowledged })
       sensors.current = m
       dirty.current = true
     })
@@ -77,11 +78,11 @@ export function useSse(url = '/sse'): SseState {
       mc.received++
       mc.lastLatency = Date.now() - d.ts
       const prev = sensors.current.get(d.sensorId)
-      if (prev && prev.online && !d.online) {
+      if (prev && prev.online && !d.online && !d.acknowledged) {
         toasts.current.push({ id: ++toastId.current, sensorId: d.sensorId, expires: Date.now() + 4000 })
         if (toasts.current.length > 5) toasts.current.splice(0, toasts.current.length - 5)
       }
-      sensors.current.set(d.sensorId, { id: d.sensorId, value: d.value, online: d.online })
+      sensors.current.set(d.sensorId, { id: d.sensorId, value: d.value, online: d.online, acknowledged: d.acknowledged })
       dirty.current = true
     })
 

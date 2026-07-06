@@ -3,10 +3,10 @@ using System.Threading.Channels;
 namespace Crw.Server;
 
 /// <summary>A change event pushed to clients. Seq is a global monotonic id. Online carries liveness.</summary>
-public record SensorEvent(long Seq, string SensorId, int Value, bool Online, long Ts);
+public record SensorEvent(long Seq, string SensorId, int Value, bool Online, bool Acknowledged, long Ts);
 
 /// <summary>Current state of one sensor, used to seed a newly connected client.</summary>
-public record SensorSnapshotItem(string SensorId, int Value, bool Online, long Ts);
+public record SensorSnapshotItem(string SensorId, int Value, bool Online, bool Acknowledged, long Ts);
 
 /// <summary>Full current state at a point in the seq stream. Client starts live tracking from Seq.</summary>
 public record Snapshot(long Seq, IReadOnlyList<SensorSnapshotItem> Sensors);
@@ -28,6 +28,7 @@ public sealed class SensorHub
     {
         public int Value;
         public bool Online;
+        public bool Acknowledged;   // operator has ack'd this sensor (client action -> server state)
         public long LastSeenTs;
     }
 
@@ -71,6 +72,7 @@ public sealed class SensorHub
             s.Value = value;
             s.Online = true;
             s.LastSeenTs = now;
+            if (cameOnline) s.Acknowledged = false;   // recovered -> clear any acknowledgment
             if (isNew) _states[sensorId] = s;
 
             if (!valueChanged && !cameOnline)         // nothing to report, but liveness refreshed above (D7)
@@ -79,7 +81,7 @@ public sealed class SensorHub
                 return;
             }
 
-            evt = Append(sensorId, value, true, now);
+            evt = Append(sensorId, value, true, s.Acknowledged, now);
             subs = _subscribers.ToArray();
         }
 
@@ -100,7 +102,7 @@ public sealed class SensorHub
                 if (s.Online && now - s.LastSeenTs > offlineAfterMs)
                 {
                     s.Online = false;
-                    (events ??= new()).Add(Append(id, s.Value, false, now));
+                    (events ??= new()).Add(Append(id, s.Value, false, s.Acknowledged, now));
                 }
             }
             if (events is null) return;
@@ -140,7 +142,7 @@ public sealed class SensorHub
             else
             {
                 var items = _states
-                    .Select(kv => new SensorSnapshotItem(kv.Key, kv.Value.Value, kv.Value.Online, kv.Value.LastSeenTs))
+                    .Select(kv => new SensorSnapshotItem(kv.Key, kv.Value.Value, kv.Value.Online, kv.Value.Acknowledged, kv.Value.LastSeenTs))
                     .OrderBy(i => i.SensorId, StringComparer.Ordinal)
                     .ToArray();
                 snapshot = new Snapshot(_seq, items);
@@ -152,9 +154,9 @@ public sealed class SensorHub
     }
 
     // Must be called under _gate.
-    private SensorEvent Append(string sensorId, int value, bool online, long ts)
+    private SensorEvent Append(string sensorId, int value, bool online, bool acknowledged, long ts)
     {
-        var evt = new SensorEvent(++_seq, sensorId, value, online, ts);
+        var evt = new SensorEvent(++_seq, sensorId, value, online, acknowledged, ts);
         _history.Add(evt);
         if (_history.Count > MaxHistory)
             _history.RemoveRange(0, _history.Count - MaxHistory);
@@ -164,6 +166,29 @@ public sealed class SensorHub
     private static void Fan(Channel<SensorEvent>[] subs, SensorEvent evt)
     {
         foreach (var ch in subs) ch.Writer.TryWrite(evt);
+    }
+
+    // --- Client action -> state change -> broadcast -------------------------
+
+    /// <summary>
+    /// Toggle a sensor's acknowledged flag (a UI action) and broadcast the new state to every
+    /// connected client. Returns false if the sensor is unknown.
+    /// </summary>
+    public bool ToggleAck(string sensorId)
+    {
+        SensorEvent evt;
+        Channel<SensorEvent>[] subs;
+
+        lock (_gate)
+        {
+            if (!_states.TryGetValue(sensorId, out var s)) return false;
+            s.Acknowledged = !s.Acknowledged;
+            evt = Append(sensorId, s.Value, s.Online, s.Acknowledged, Now());
+            subs = _subscribers.ToArray();
+        }
+
+        Fan(subs, evt);
+        return true;
     }
 
     // --- Chaos: simulate signal loss / downtime -----------------------------

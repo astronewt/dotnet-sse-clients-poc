@@ -5,6 +5,7 @@ import './App.css'
 export default function App() {
   const s = useSse()
   const fireBurst = () => fetch('/admin/burst?count=1000', { method: 'POST' })
+  const ack = (id: string) => fetch(`/sensors/${encodeURIComponent(id)}/ack`, { method: 'POST' })
 
   return (
     <main>
@@ -30,7 +31,7 @@ export default function App() {
       </div>
 
       <div className="grid">
-        {s.sensors.map(sensor => <Tile key={sensor.id} sensor={sensor} />)}
+        {s.sensors.map(sensor => <Tile key={sensor.id} sensor={sensor} onAck={ack} />)}
       </div>
 
       <div className="toasts">
@@ -42,13 +43,18 @@ export default function App() {
   )
 }
 
-// Memoized so only tiles whose value/online actually changed re-render.
-const Tile = memo(function Tile({ sensor }: { sensor: Sensor }) {
+// Memoized so only tiles whose value/online/acknowledged actually changed re-render.
+const Tile = memo(function Tile({ sensor, onAck }: { sensor: Sensor; onAck: (id: string) => void }) {
   return (
-    <div className={`tile ${sensor.online ? '' : 'off'}`}>
+    <div
+      className={`tile ${sensor.online ? '' : 'off'} ${sensor.acknowledged ? 'ack' : ''}`}
+      onClick={() => onAck(sensor.id)}
+      title="Click to acknowledge / un-acknowledge"
+    >
       <div className="dot" />
       <div className="id">{sensor.id}</div>
       <div className="v">{sensor.value}</div>
+      {sensor.acknowledged && <div className="ackbadge">✓</div>}
     </div>
   )
 })

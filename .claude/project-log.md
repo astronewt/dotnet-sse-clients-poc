@@ -40,6 +40,8 @@ Goal: prove SSE reliably delivers central-server updates to the FE, low latency,
 | D19 | Docker scope | `docker compose up -d --build` runs the server + all **three web clients** via the single nginx edge (one origin). **WPF is intentionally excluded** — it's a native Windows desktop GUI, not a web app. Edge Dockerfile fixed to include the shared RCL in the Blazor build. | User wanted every client to start from one command; clarified web vs native boundary. |
 | D20 | Network latency simulation | Config-driven (`Latency:*`): a base delay (25–80ms) on every request with ~5% spikes (300–1200ms), plus optional per-**batch** SSE jitter (`StreamJitterMaxMs`). **Off in local dev, ON in Docker** (`Latency__Enabled=true`, `StreamJitterMaxMs=40`) since the containerized topology mimics a real deployment. Burst load test is effectively unaffected (jitter is once-per-flush). | Clients are never on the server box; localhost hides latency/spike behavior. |
 | D21 (WPF fix) | WPF target framework | WPF host must target a **versioned** Windows TFM (`net10.0-windows10.0.19041.0`), not bare `net10.0-windows` — otherwise WebView2's composition control throws `FileNotFoundException: Microsoft.Windows.SDK.NET` at launch and the window never appears. | The app built fine but crashed on start; this was the cause. |
+| D22 | Bidirectional (client → server → all clients) | **Acknowledge a sensor**: clicking a tile in ANY client `POST /sensors/{id}/ack` → hub toggles `Acknowledged` and broadcasts a `sensor` event → every client converges (amber outline + ✓ badge). Offline toast is suppressed for acked sensors; ack auto-clears when a sensor recovers. Added `Acknowledged` to the event + snapshot DTOs. | User asked for the reverse path — a UI action that mutates backend state and propagates back to all UIs. |
+| D23 | Docker limited by environment | Containers on this machine have **no outbound network at runtime** (even `ping 1.1.1.1` from a container times out; image pulls work only via Docker Desktop's proxy). So in-container `dotnet restore` / `npm ci` / `apk add` hang forever. Dockerfiles are correct; the environment (corp firewall/VPN around the Docker Linux VM) blocks it. Options: fix the VM network, or rework Dockerfiles to **build on host + COPY artifacts** (no container network). Deferred — app runs fully in dev mode. | Diagnosed after repeated `docker compose build` hangs on `dotnet restore`. |
 
 ## Project structure (after D15)
 
@@ -61,6 +63,14 @@ Full write-up in [CLIENTS.md](../CLIENTS.md). Key findings:
 - **`EventSource` (vanilla + React) cannot set request headers** → no `Authorization` header on the stream. Workarounds: cookie auth, token in query (leaks), or a fetch-based SSE polyfill. **Blazor's `HttpClient` has no such limit.** This is a decisive factor if authenticated streams are required while staying in-browser.
 - WASM Blazor **requires** `request.SetBrowserResponseStreamingEnabled(true)` + `ResponseHeadersRead` or SSE never flows; this line is WASM-only (native/desktop `HttpClient` streams by default).
 - Rendering hundreds of tiles: React and Blazor need render throttling (~10 fps) to stay smooth under high event rates; vanilla uses targeted DOM updates.
+
+### Bidirectional validation (2026-07-06)
+- Two independent SSE clients connected; `POST /sensors/sensor-000/ack` from "client A" → **both** clients received the acked `sensor` event (multi-client convergence).
+- Ack persists into a fresh client's `snapshot` (acknowledged=true); toggling again returns false; unknown sensor → 404.
+
+### Docker container network blocked (2026-07-06)
+- `docker pull` works; but `docker run alpine ping -c2 1.1.1.1` and `wget https://api.nuget.org` both **time out (exit 124)**. Container runtime has no route out.
+- Conclusion: environmental (corp firewall/VPN around Docker Desktop's Linux VM), not our config. In-container package restore/install can't work here. Build-on-host + COPY is the workaround if Docker is required.
 
 ### Network latency simulation (2026-07-06)
 - Goal: stop hiding real-world latency/spikes behind localhost. Added request-level delay middleware + optional SSE stream jitter (`LatencyOptions`, D20).
