@@ -2,7 +2,7 @@
 
 Proof of concept: real-time server-to-front-end updates over Server-Sent Events, with hundreds of sensors and live online/offline status.
 
-Docs: [PLAN.md](PLAN.md) (plan + decision log) · [RESULTS.md](RESULTS.md) (validation) · [CLIENTS.md](CLIENTS.md) (client comparison) · [AUTH.md](AUTH.md) (authenticating the stream — browser vs desktop) · [.claude/project-log.md](.claude/project-log.md) (running log).
+Docs: [PLAN.md](PLAN.md) (plan + decision log) · [RESULTS.md](RESULTS.md) (validation) · [CLIENTS.md](CLIENTS.md) (client comparison) · [AUTH.md](AUTH.md) (authenticating the stream — browser vs desktop) · [STABILITY.md](STABILITY.md) (8-hour / high-volume soak + production checklist) · [.claude/project-log.md](.claude/project-log.md) (running log).
 
 ## Layout
 

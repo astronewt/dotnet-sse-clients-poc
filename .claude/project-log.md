@@ -48,6 +48,8 @@ Goal: prove SSE reliably delivers central-server updates to the FE, low latency,
 
 | D26 | Auth demo implemented | Auth is now enforced (`Auth:Enabled` default true, pw `demo`). `/sse`+`/admin`+`/sensors` → 401 without a token; `/auth/login` issues an opaque token as **bearer + HttpOnly cookie**; `/sse` accepts bearer / cookie / `?access_token=`. Browser clients (vanilla+React) use cookie (login bar, connect-when-authed); Blazor+WPF use bearer via a shared `AuthHandler : DelegatingHandler` (login, attach to stream, clear on 401 → reconnect re-auths). In-memory store, plaintext pw — demo only. | User: "since this is a PoC it should include and demonstrate some of the listed options." Verified the endpoint was previously wide open (401 now). |
 
+| D27 | 8-hour / high-volume stability | Concern: run smoothly for an operator's shift at ~1M+ events/day. Added **bounded per-subscriber channel** (`DropOldest`, cap 4096) so a slow/stuck client can't grow server memory unbounded. **Soak-tested** at ~2000 events/s (≈170× target) × 5 clients for 3 min: client memory flat (63→65 MB), server memory plateaued then **flat-when-idle at ~242 MB (Server-GC retention, not a leak)**, 20 gaps total (backpressure working). Wrote [STABILITY.md](../STABILITY.md) with results + production checklist (serialize-once fan-out, GC tuning, token expiry, WASM profiling, reconnect backoff, history sizing, monitoring). | User: must run a full 8h+ shift, a million+ events/day. |
+
 ## Project structure (after D15)
 
 ```

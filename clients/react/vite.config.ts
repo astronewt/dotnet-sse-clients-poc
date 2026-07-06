@@ -12,6 +12,8 @@ export default defineConfig({
     proxy: {
       '/sse': { target: 'http://localhost:5020', changeOrigin: true },
       '/admin': { target: 'http://localhost:5020', changeOrigin: true },
+      '/auth': { target: 'http://localhost:5020', changeOrigin: true },
+      '/sensors': { target: 'http://localhost:5020', changeOrigin: true },
     },
   },
 })

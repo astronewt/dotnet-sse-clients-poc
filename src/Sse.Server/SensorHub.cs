@@ -23,6 +23,7 @@ public record HubStats(long Emitted, long Skipped, int Subscribers, int Total, i
 public sealed class SensorHub
 {
     private const int MaxHistory = 50_000;
+    private const int SubscriberBufferSize = 4_096;   // per-client backpressure cap (see Subscribe)
 
     private sealed class State
     {
@@ -123,8 +124,17 @@ public sealed class SensorHub
     /// </summary>
     public (Snapshot? Snapshot, IReadOnlyList<SensorEvent> Backlog, ChannelReader<SensorEvent> Reader, IDisposable Subscription) Subscribe(long lastEventId)
     {
-        var channel = Channel.CreateUnbounded<SensorEvent>(
-            new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        // Bounded per-subscriber buffer: if a client (or its network) can't keep up, we drop the
+        // OLDEST queued events for that one client instead of growing memory without limit. The
+        // client sees a seq gap (its integrity counter ticks) and can reconnect to re-sync — but a
+        // single stuck consumer can never OOM the server over a long shift.
+        var channel = Channel.CreateBounded<SensorEvent>(
+            new BoundedChannelOptions(SubscriberBufferSize)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false,
+            });
 
         Snapshot? snapshot = null;
         SensorEvent[] backlog = [];
