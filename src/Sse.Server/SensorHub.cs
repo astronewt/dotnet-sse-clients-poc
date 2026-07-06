@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Crw.Server;
+namespace Sse.Server;
 
 /// <summary>A change event pushed to clients. Seq is a global monotonic id. Online carries liveness.</summary>
 public record SensorEvent(long Seq, string SensorId, int Value, bool Online, bool Acknowledged, long Ts);

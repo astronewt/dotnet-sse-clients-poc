@@ -1,4 +1,4 @@
-namespace Crw.Server;
+namespace Sse.Server;
 
 /// <summary>
 /// Opt-in chaos: randomly simulates signal loss (drops all connections) or downtime

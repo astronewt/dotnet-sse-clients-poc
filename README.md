@@ -1,4 +1,4 @@
-# Crw — SSE PoC (SCRUM-5)
+# SSE PoC (SCRUM-5)
 
 Proof of concept: real-time server-to-front-end updates over Server-Sent Events, with hundreds of sensors and live online/offline status.
 
@@ -7,9 +7,9 @@ Docs: [PLAN.md](PLAN.md) (plan + decision log) · [RESULTS.md](RESULTS.md) (vali
 ## Layout
 
 ```
-src/Crw.Server        ASP.NET Core Minimal API — SSE endpoint, simulated sensors, chaos hooks
+src/Sse.Server        ASP.NET Core Minimal API — SSE endpoint, simulated sensors, chaos hooks
   wwwroot/vanilla     Vanilla JS EventSource client
-clients/shared        Crw.ClientShared — RCL: DTOs, SseSensorClient, SensorDashboard (shared by WASM + WPF)
+clients/shared        Sse.ClientShared — RCL: DTOs, SseSensorClient, SensorDashboard (shared by WASM + WPF)
 clients/blazor        Blazor WASM host (browser)
 clients/wpf           WPF + BlazorWebView host (native Windows) — reuses clients/shared
 clients/react         React + Vite client
@@ -39,7 +39,7 @@ Stop the stack: `docker compose down`.
 
 ```bash
 # Server (HTTPS enables HTTP/2)
-dotnet run --project src/Crw.Server --launch-profile https
+dotnet run --project src/Sse.Server --launch-profile https
 ```
 
 | Client | URL / command |

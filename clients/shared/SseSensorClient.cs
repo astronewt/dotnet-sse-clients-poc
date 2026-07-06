@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Crw.ClientShared;
+namespace Sse.ClientShared;
 
 /// <summary>Lets a host tweak the outgoing request (e.g. WASM must enable response streaming).</summary>
 public delegate void SseRequestConfigurator(HttpRequestMessage request);

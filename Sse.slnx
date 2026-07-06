@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/clients/" />
+  <Folder Name="/clients/blazor/">
+    <Project Path="clients/blazor/Sse.BlazorClient.csproj" />
+  </Folder>
+  <Folder Name="/clients/shared/">
+    <Project Path="clients/shared/Sse.ClientShared.csproj" />
+  </Folder>
+  <Folder Name="/clients/wpf/">
+    <Project Path="clients/wpf/Sse.WpfClient.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Sse.Server/Sse.Server.csproj" />
+  </Folder>
+</Solution>

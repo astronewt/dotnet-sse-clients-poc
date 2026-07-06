@@ -14,7 +14,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS blazor
 WORKDIR /src
 COPY clients/shared/ shared/
 COPY clients/blazor/ blazor/
-RUN dotnet publish blazor/Crw.BlazorClient.csproj -c Release -o /out
+RUN dotnet publish blazor/Sse.BlazorClient.csproj -c Release -o /out
 # Serve under the /blazor/ subpath.
 RUN sed -i 's#<base href="/" />#<base href="/blazor/" />#' /out/wwwroot/index.html
 

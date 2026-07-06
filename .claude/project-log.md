@@ -1,4 +1,4 @@
-# Crw — Project Log (decisions & testing)
+# Sse — Project Log (decisions & testing)
 
 Living log for the SCRUM-5 SSE proof of concept. Append as work continues.
 Companion docs: [PLAN.md](../PLAN.md) (plan + decision log), [RESULTS.md](../RESULTS.md), [README.md](../README.md).
@@ -33,7 +33,7 @@ Goal: prove SSE reliably delivers central-server updates to the FE, low latency,
 | D13 | Snapshot on connect | New clients get a full-state `snapshot` SSE event (all sensors) before live deltas; it carries the current seq, is NOT part of the seq stream, so integrity tracking stays contiguous. Reconnects still use Last-Event-ID backlog. | Hundreds of sensors must render immediately, not trickle in as each changes. |
 | D14 (open) | Windows-app client | Possible native Windows client instead of / alongside the browser. Options researched (see [CLIENTS.md](../CLIENTS.md)): **4a Blazor Hybrid** (MAUI or WPF `BlazorWebView`) — recommended for max reuse; **4b** pure WPF/WinForms; **4c** Electron/Tauri wrapping the web app. Not built yet. | Requirement raised 2026-07-06; pending confirmation of desktop vs browser and reuse needs. |
 
-| D15 | Desktop client + code reuse | Built a **native WPF client** via `BlazorWebView`, and extracted the dashboard into a shared **Razor Class Library** (`clients/shared/Crw.ClientShared`) consumed by BOTH the browser WASM app and the WPF app. SSE consumption is one shared `SseSensorClient`; only the request-config differs (WASM enables browser streaming, desktop is native). Chose WPF over MAUI to avoid the MAUI workload install; pattern is identical if MAUI/cross-platform is needed later. | Proves the "one UI codebase for browser + Windows" story (answers the D14 question). |
+| D15 | Desktop client + code reuse | Built a **native WPF client** via `BlazorWebView`, and extracted the dashboard into a shared **Razor Class Library** (`clients/shared/Sse.ClientShared`) consumed by BOTH the browser WASM app and the WPF app. SSE consumption is one shared `SseSensorClient`; only the request-config differs (WASM enables browser streaming, desktop is native). Chose WPF over MAUI to avoid the MAUI workload install; pattern is identical if MAUI/cross-platform is needed later. | Proves the "one UI codebase for browser + Windows" story (answers the D14 question). |
 | D16 | Offline toast | All clients show a self-dismissing toast when a sensor transitions online→offline (max 5, ~4s). Implemented once in the shared Blazor component (covers WASM + WPF) and once each in React and vanilla. | Requested UX for at-a-glance offline awareness. |
 | D17 | Robust resume ✅ | On reconnect the server sends a **backlog only if every event after `Last-Event-ID` is still buffered** (`lastId <= seq && lastId >= oldestHistorySeq-1`). Otherwise (new client, aged-out resume point, or server restart where seq reset) it sends a **fresh snapshot**. Confirmed the right call by the user. | Closes the earlier known limitation: a long-disconnected client no longer resumes into a silent gap. |
 | D18 | Chaos / resilience simulation | Backend can simulate **signal loss** (`POST /admin/chaos/drop` — force-drop all connections) and **downtime** (`POST /admin/chaos/outage?seconds=N` — `/sse` returns 503 + Retry-After, then recovers). Opt-in **random auto-chaos** via `Chaos:Enabled` (env `Chaos__Enabled=true`), interval `Chaos:MinIntervalSec`/`MaxIntervalSec`. Default OFF. | User asked the backend to randomly trigger signal loss / restart / downtime to exercise client reconnect/resume. |
@@ -46,12 +46,12 @@ Goal: prove SSE reliably delivers central-server updates to the FE, low latency,
 ## Project structure (after D15)
 
 ```
-src/Crw.Server          server (unchanged)
-clients/shared          Crw.ClientShared — RCL: Dtos, SseSensorClient, SensorDashboard.razor (+scoped css)
-clients/blazor          Crw.BlazorClient — WASM host; Home.razor renders <SensorDashboard/>; registers SseSensorClient w/ SetBrowserResponseStreamingEnabled
-clients/wpf             Crw.WpfClient — WPF + BlazorWebView; Main.razor renders <SensorDashboard/>; native HttpClient (BaseAddress http://localhost:5020)
+src/Sse.Server          server (unchanged)
+clients/shared          Sse.ClientShared — RCL: Dtos, SseSensorClient, SensorDashboard.razor (+scoped css)
+clients/blazor          Sse.BlazorClient — WASM host; Home.razor renders <SensorDashboard/>; registers SseSensorClient w/ SetBrowserResponseStreamingEnabled
+clients/wpf             Sse.WpfClient — WPF + BlazorWebView; Main.razor renders <SensorDashboard/>; native HttpClient (BaseAddress http://localhost:5020)
 clients/react           React (own implementation; not shared with .NET)
-Crw.slnx                solution (note: .slnx XML format, not .sln)
+Sse.slnx                solution (note: .slnx XML format, not .sln)
 ```
 
 Reuse note: WASM + WPF share the *same* `SensorDashboard` component and SSE client via the RCL. React/vanilla are separate JS implementations by nature. All four build clean; WPF runtime needs a desktop session + WebView2 (evergreen on Win11) + the server running — not verified headlessly this session.
@@ -104,7 +104,7 @@ Validated against local server:
 ## What's built
 
 ```
-src/Crw.Server            ASP.NET Core Minimal API
+src/Sse.Server            ASP.NET Core Minimal API
   SensorHub.cs            change tracker + fan-out (Channels), history, seq
   SensorSimulator.cs      BackgroundService, 5 sensors @500ms, ~30% no-op ticks
   Program.cs              /sse, /admin/burst, /admin/stats; Kestrel Http1AndHttp2; dev CORS

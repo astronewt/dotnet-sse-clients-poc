@@ -1,9 +1,9 @@
 using System.Net.Http;
 using System.Windows;
-using Crw.ClientShared;
+using Sse.ClientShared;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Crw.WpfClient;
+namespace Sse.WpfClient;
 
 /// <summary>
 /// Interaction logic for MainWindow.xaml. Wires the DI container the BlazorWebView uses.

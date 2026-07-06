@@ -1,4 +1,4 @@
-namespace Crw.Server;
+namespace Sse.Server;
 
 /// <summary>
 /// Simulates that clients reach the server over a network, not localhost.

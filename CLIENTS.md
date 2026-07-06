@@ -20,7 +20,7 @@ TL;DR:
 
 ## 1. Vanilla JS + `EventSource`
 
-Files: [wwwroot/vanilla/index.html](src/Crw.Server/wwwroot/vanilla/index.html) — one HTML file, no build.
+Files: [wwwroot/vanilla/index.html](src/Sse.Server/wwwroot/vanilla/index.html) — one HTML file, no build.
 
 **Benefits**
 - **Zero dependencies, zero build.** Just an HTML file the server serves. Nothing to install, patch, or audit.

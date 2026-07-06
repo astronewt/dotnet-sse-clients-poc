@@ -2,7 +2,7 @@
 using System.Data;
 using System.Windows;
 
-namespace Crw.WpfClient;
+namespace Sse.WpfClient;
 
 /// <summary>
 /// Interaction logic for App.xaml

@@ -1,4 +1,4 @@
-namespace Crw.Server;
+namespace Sse.Server;
 
 /// <summary>
 /// Simulated in-server data source (D2) scaled to hundreds of sensors.

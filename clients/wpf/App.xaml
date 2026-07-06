@@ -1,7 +1,7 @@
-﻿<Application x:Class="Crw.WpfClient.App"
+﻿<Application x:Class="Sse.WpfClient.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Crw.WpfClient"
+             xmlns:local="clr-namespace:Sse.WpfClient"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
          
