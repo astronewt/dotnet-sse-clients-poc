@@ -24,7 +24,12 @@ public partial class MainWindow : Window
 #if DEBUG
         services.AddBlazorWebViewDeveloperTools();
 #endif
-        services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(ServerBaseUrl) });
+        // Bearer auth via an HttpClient handler (AUTH.md desktop path) — attaches the token to the stream too.
+        services.AddScoped(_ =>
+        {
+            var handler = new AuthHandler("demo") { InnerHandler = new HttpClientHandler() };
+            return new HttpClient(handler) { BaseAddress = new Uri(ServerBaseUrl) };
+        });
         // No request configurator: native HttpClient already streams the response.
         services.AddScoped(sp => new SseSensorClient(sp.GetRequiredService<HttpClient>()));
 

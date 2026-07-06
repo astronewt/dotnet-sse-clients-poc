@@ -5,13 +5,30 @@ import './App.css'
 const post = (url: string) => fetch(url, { method: 'POST' })
 
 export default function App() {
-  const s = useSse()
+  const [authRequired, setAuthRequired] = useState(true)
+  const [authed, setAuthed] = useState(false)
+  const [pw, setPw] = useState('demo')
+  const show = authed || !authRequired
+
+  const s = useSse('/sse', show)
   const [selected, setSelected] = useState<string | null>(null)
   const [rename, setRename] = useState('')
 
   const sel = selected ? s.sensors.find(x => x.id === selected) : undefined
   // keep the rename box in sync when the selection changes
   useEffect(() => { setRename(sel?.name ?? '') }, [selected])
+
+  // check auth on load
+  useEffect(() => {
+    fetch('/auth/me').then(r => r.json()).then(me => { setAuthRequired(me.authRequired); setAuthed(me.authenticated) })
+  }, [])
+
+  const login = async () => {
+    // A1: same-origin login sets an HttpOnly cookie the EventSource then sends automatically.
+    const r = await fetch('/auth/login?password=' + encodeURIComponent(pw), { method: 'POST' })
+    if (r.ok) setAuthed(true)
+  }
+  const logout = async () => { await fetch('/auth/logout', { method: 'POST' }); setAuthed(false); setSelected(null) }
 
   const enc = encodeURIComponent
 
@@ -30,6 +47,28 @@ export default function App() {
         <button className="chaos" onClick={() => post('/admin/chaos/drop')}>Drop connections</button>
       </div>
 
+      {authRequired && (
+        <div className="bar">
+          {authed ? (
+            <>
+              <span className="pill ok">🔒 signed in as <strong>operator</strong> (cookie)</span>
+              <button onClick={logout}>Log out</button>
+            </>
+          ) : (
+            <>
+              🔒 <span>Stream is protected.</span>
+              <input type="password" value={pw} onChange={e => setPw(e.target.value)}
+                     style={{ padding: '.35rem .5rem', border: '1px solid #cbd5e1', borderRadius: 6, userSelect: 'text' }} />
+              <button onClick={login}>Log in</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!show ? (
+        <p style={{ color: '#64748b' }}>Sign in to view the sensor stream (password: <code>demo</code>).</p>
+      ) : (
+      <>
       <div className="stats">
         <Stat n={s.sensors.length} label="sensors" />
         <Stat n={s.online} label="online" color="#166534" />
@@ -71,6 +110,8 @@ export default function App() {
           <div className="toast" key={t.id}>🔴 <strong>{t.sensorId}</strong> went offline</div>
         ))}
       </div>
+      </>
+      )}
     </main>
   )
 }

@@ -38,7 +38,7 @@ interface SnapshotMsg { seq: number; sensors: { sensorId: string; value: number;
  * (~10 fps) so a high event rate never floods rendering. seq is global + contiguous, so
  * gaps = loss, repeat = duplicate, backwards = out of order.
  */
-export function useSse(url = '/sse'): SseState {
+export function useSse(url = '/sse', enabled = true): SseState {
   const [state, setState] = useState<SseState>(() => ({
     status: 'connecting', protocol: '?', sensors: [], online: 0, offline: 0,
     received: 0, lastSeq: 0, gaps: 0, dupes: 0, outOfOrder: 0, lastLatency: null, toasts: [],
@@ -54,6 +54,7 @@ export function useSse(url = '/sse'): SseState {
   const dirty = useRef(true)
 
   useEffect(() => {
+    if (!enabled) return   // not authenticated yet -> don't open the stream
     const es = new EventSource(url)
 
     es.addEventListener('open', () => { meta.current.status = 'connected'; dirty.current = true })
@@ -111,7 +112,7 @@ export function useSse(url = '/sse'): SseState {
     }, 100)
 
     return () => { clearTimeout(protoTimer); clearInterval(flush); es.close() }
-  }, [url])
+  }, [url, enabled])
 
   return state
 }

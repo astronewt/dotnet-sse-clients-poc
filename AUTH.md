@@ -2,6 +2,8 @@
 
 Authentication is the single biggest factor that splits the client choices, because **how you attach credentials to a long-lived SSE connection depends entirely on the client technology**. This document analyses both deployment types the product may take — **browser-based** and **desktop-based** — since the answer is materially different for each.
 
+> **Implemented in this PoC (demo).** Auth is ON by default (`Auth:Enabled`, password `demo`). `/sse`, `/admin/*` and `/sensors/*` return **401** without a valid credential; static pages and `/auth/*` stay open. `POST /auth/login?password=demo` issues an opaque token returned as a **bearer** *and* set as an **HttpOnly cookie**; `/sse` accepts a **bearer header**, the **session cookie**, or **`?access_token=`**. Clients: **vanilla + React** use the cookie (login bar, A1); **Blazor + WPF** use the bearer via a shared `AuthHandler` (`DelegatingHandler`) that logs in, attaches the token to the stream, and re-authenticates on 401. This is a demo store (in-memory tokens, plaintext password) — not production auth; a real system would use ASP.NET Core Identity / OIDC / signed JWTs. The analysis below covers the full option space.
+
 The crux, stated once:
 
 > The browser **`EventSource`** API (vanilla JS, React) can only issue a plain `GET` and **cannot set request headers** — so it cannot send `Authorization: Bearer …` on the stream. Anything built on **`HttpClient`** (Blazor, WPF, any native .NET) sets headers freely, so bearer/OAuth "just works" on the stream.

@@ -14,8 +14,13 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 builder.Services.AddSingleton<SensorHub>();
+builder.Services.AddSingleton<AuthStore>();
 builder.Services.AddHostedService<SensorSimulator>();
 builder.Services.AddHostedService<ChaosService>();
+
+// Auth demo: protect the stream + actions (see AUTH.md). Enabled by default.
+var authEnabled = builder.Configuration.GetValue("Auth:Enabled", true);
+var authPassword = builder.Configuration.GetValue("Auth:Password", "demo");
 
 // Network latency simulation (off unless configured — see LatencyOptions / "Latency" config).
 var latency = new LatencyOptions();
@@ -46,6 +51,62 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+// --- Auth: protect the stream + actions --------------------------------------
+// Static pages and /auth/* stay open; /sse, /admin, /sensors require a valid token
+// (bearer header for desktop clients, session cookie for browsers, or ?access_token=).
+var authStore = app.Services.GetRequiredService<AuthStore>();
+if (authEnabled)
+{
+    app.Use(async (ctx, next) =>
+    {
+        var p = ctx.Request.Path;
+        var isProtected = p.StartsWithSegments("/sse") || p.StartsWithSegments("/admin") || p.StartsWithSegments("/sensors");
+        if (isProtected)
+        {
+            var token = ctx.ExtractToken();
+            if (token is null || !authStore.TryGetUser(token, out _))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                ctx.Response.Headers["WWW-Authenticate"] = "Bearer";
+                return;
+            }
+        }
+        await next();
+    });
+}
+
+app.MapPost("/auth/login", (HttpContext ctx, AuthStore store, string? password) =>
+{
+    if (!authEnabled) return Results.Ok(new { authenticated = true, user = "anonymous", token = (string?)null });
+    if (password != authPassword) return Results.Unauthorized();
+
+    var token = store.Issue("operator");
+    ctx.Response.Cookies.Append(AuthExtensions.CookieName, token, new CookieOptions
+    {
+        HttpOnly = true,                 // JS can't read it -> XSS can't steal it
+        SameSite = SameSiteMode.Lax,     // basic CSRF mitigation
+        Secure = ctx.Request.IsHttps,
+        Path = "/",
+    });
+    return Results.Ok(new { authenticated = true, user = "operator", token }); // token = bearer for desktop clients
+});
+
+app.MapPost("/auth/logout", (HttpContext ctx, AuthStore store) =>
+{
+    var token = ctx.ExtractToken();
+    if (token is not null) store.Revoke(token);
+    ctx.Response.Cookies.Delete(AuthExtensions.CookieName);
+    return Results.Ok(new { authenticated = false });
+});
+
+app.MapGet("/auth/me", (HttpContext ctx, AuthStore store) =>
+{
+    if (!authEnabled) return Results.Ok(new { authenticated = true, user = "anonymous", authRequired = false });
+    var token = ctx.ExtractToken();
+    var ok = token is not null && store.TryGetUser(token, out _);
+    return Results.Ok(new { authenticated = ok, user = ok ? "operator" : null, authRequired = true });
+});
 
 // --- SSE stream -------------------------------------------------------------
 app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, LatencyOptions latency, CancellationToken ct) =>

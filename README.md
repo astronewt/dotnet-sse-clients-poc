@@ -60,6 +60,10 @@ First time for HTTPS: `dotnet dev-certs https --trust`.
 | `POST /sensors/{id}/ack` | **Client action** — toggle acknowledged; broadcast to all clients. |
 | `POST /sensors/{id}/toggle` | **Client action** — enable/disable a sensor (disabled stops reporting). |
 | `POST /sensors/{id}/name?name=…` | **Client action** — set a friendly name; broadcast to all clients. |
+| `POST /auth/login?password=demo` | Auth demo — issues a bearer token + HttpOnly session cookie. |
+| `POST /auth/logout` · `GET /auth/me` | Revoke the token · check auth state. |
+
+**Auth demo** (on by default, password `demo` — see [AUTH.md](AUTH.md)): `/sse` + actions require a credential. Browser clients use the **cookie** (login bar); Blazor/WPF use a **bearer token** via a shared `AuthHandler`. Disable with `Auth__Enabled=false`.
 | `POST /admin/burst?count=1000` | Fire a burst of change events (load test). |
 | `POST /admin/chaos/drop` | **Signal loss** — drop all live connections; clients reconnect + resume. |
 | `POST /admin/chaos/outage?seconds=10` | **Downtime** — `/sse` returns 503 for the window, then recovers. |

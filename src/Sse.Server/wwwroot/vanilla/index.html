@@ -61,6 +61,8 @@
     <button class="chaos" id="drop">Drop connections</button>
   </div>
 
+  <div id="authbar" class="bar"></div>
+
   <div class="stats">
     <div><b id="s-total">0</b><span class="l">sensors</span></div>
     <div><b id="s-online" style="color:#166534">0</b><span class="l">online</span></div>
@@ -186,21 +188,48 @@
       setTimeout(() => el.remove(), 4000);
     }
 
-    let es;
+    let es, authed = false, authRequired = true;
     function connect() {
-      es = new EventSource('/sse');
-      es.addEventListener('open', () => setPill($('state'), 'connected', 'ok'));
+      if (es) es.close();
+      es = new EventSource('/sse');   // browser attaches the HttpOnly session cookie automatically (A1)
+      es.addEventListener('open', () => {
+        setPill($('state'), 'connected', 'ok');
+        setTimeout(() => {
+          const r = performance.getEntriesByType('resource').find(e => e.name.includes('/sse'));
+          const proto = r?.nextHopProtocol || '(unknown)';
+          setPill($('proto'), 'protocol: ' + proto, proto === 'h2' ? 'ok' : 'wait');
+        }, 800);
+      });
       es.addEventListener('error', () => setPill($('state'), 'reconnecting…', 'bad'));
       es.addEventListener('snapshot', onSnapshot);
       es.addEventListener('sensor', onSensor);
     }
-    connect();
 
-    setTimeout(() => {
-      const r = performance.getEntriesByType('resource').find(e => e.name.includes('/sse'));
-      const proto = r?.nextHopProtocol || '(unknown)';
-      setPill($('proto'), 'protocol: ' + proto, proto === 'h2' ? 'ok' : 'wait');
-    }, 1500);
+    // --- auth (cookie session) ---
+    const authbar = $('authbar');
+    function renderAuth() {
+      if (!authRequired) { authbar.innerHTML = '<span class="pill ok">auth: disabled</span>'; return; }
+      authbar.innerHTML = authed
+        ? '<span class="pill ok">🔒 signed in as <strong>operator</strong> (cookie)</span> <button id="logout">Log out</button>'
+        : '🔒 <span>Stream is protected.</span> <input id="pw" type="password" value="demo" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:6px;user-select:text"> <button id="login">Log in</button>';
+      if (authed) $('logout').onclick = logout; else $('login').onclick = login;
+    }
+    async function refreshAuth() {
+      const me = await (await fetch('/auth/me')).json();
+      authRequired = me.authRequired; authed = me.authenticated; renderAuth();
+    }
+    async function login() {
+      const r = await fetch('/auth/login?password=' + encodeURIComponent($('pw').value), { method: 'POST' });
+      if (!r.ok) { setPill($('state'), 'login failed', 'bad'); return; }
+      authed = true; renderAuth(); connect();
+    }
+    async function logout() {
+      await fetch('/auth/logout', { method: 'POST' });
+      authed = false; if (es) es.close();
+      grid.innerHTML = ''; tiles.clear(); online = 0; select(null); renderStats(); renderAuth();
+      setPill($('state'), 'signed out', 'wait');
+    }
+    (async () => { await refreshAuth(); if (authed || !authRequired) connect(); })();
 
     $('burst').onclick = () => post('/admin/burst?count=1000');
     $('outage').onclick = () => post('/admin/chaos/outage?seconds=10');

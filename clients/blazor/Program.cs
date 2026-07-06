@@ -14,7 +14,13 @@ var apiBase = "http://localhost:5020";
 #else
 var apiBase = builder.HostEnvironment.BaseAddress;
 #endif
-builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(apiBase) });
+// Bearer auth via HttpClient (AUTH.md desktop path): the handler logs in and attaches the token,
+// even on the /sse stream — something browser EventSource can't do.
+builder.Services.AddScoped(sp =>
+{
+    var handler = new AuthHandler("demo") { InnerHandler = new HttpClientHandler() };
+    return new HttpClient(handler) { BaseAddress = new Uri(apiBase) };
+});
 
 // Shared SSE client. WASM host must enable response streaming, or SSE never flows.
 builder.Services.AddScoped(sp => new SseSensorClient(
