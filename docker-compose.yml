@@ -1,6 +1,12 @@
-# Crw SSE PoC — full stack in containers.
-#   edge   : nginx, TLS + HTTP/2, serves React/Blazor, reverse-proxies SSE  -> https://localhost:8443
+# Crw SSE PoC — full stack in containers. `docker compose up -d --build` starts everything:
 #   server : ASP.NET Core SSE server (cleartext http, behind the edge)      -> http://localhost:5020 (direct API)
+#   edge   : nginx (TLS + HTTP/2). Serves ALL THREE web clients on one origin + reverse-proxies SSE:
+#              https://localhost:8443/          landing
+#              https://localhost:8443/vanilla/  vanilla JS client
+#              https://localhost:8443/react/    React client
+#              https://localhost:8443/blazor/   Blazor WASM client
+# The WPF client is a native Windows desktop app (not a web app) and is not containerized;
+# run it with `dotnet run --project clients/wpf`.
 
 services:
   server:

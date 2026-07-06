@@ -15,6 +15,7 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 builder.Services.AddSingleton<SensorHub>();
 builder.Services.AddHostedService<SensorSimulator>();
+builder.Services.AddHostedService<ChaosService>();
 
 var app = builder.Build();
 
@@ -27,6 +28,14 @@ var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 // --- SSE stream -------------------------------------------------------------
 app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) =>
 {
+    // Simulated downtime: refuse the connection so clients exercise their reconnect/backoff.
+    if (hub.IsOutage(out var retryAfter))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        ctx.Response.Headers.RetryAfter = retryAfter.ToString();
+        return;
+    }
+
     ctx.Response.Headers.ContentType = "text/event-stream";
     ctx.Response.Headers.CacheControl = "no-cache";
     ctx.Response.Headers["X-Accel-Buffering"] = "no"; // defeat proxy buffering
@@ -36,7 +45,7 @@ app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) 
     if (ctx.Request.Headers.TryGetValue("Last-Event-ID", out var h) && long.TryParse(h, out var v)) lastId = v;
     else if (long.TryParse(ctx.Request.Query["lastEventId"], out var q)) lastId = q;
 
-    var (backlog, reader, subscription) = hub.Subscribe(lastId);
+    var (snapshot, backlog, reader, subscription) = hub.Subscribe(lastId);
     using var _ = subscription;
 
     async Task Write(SensorEvent e)
@@ -45,6 +54,13 @@ app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) 
         await ctx.Response.WriteAsync($"id: {e.Seq}\nevent: sensor\ndata: {data}\n\n", ct);
     }
 
+    // New client: seed the full current state so hundreds of sensors render at once.
+    // No id: — the snapshot is not part of the seq stream; the client starts tracking from snapshot.seq.
+    if (snapshot is not null)
+    {
+        var snap = JsonSerializer.Serialize(snapshot, json);
+        await ctx.Response.WriteAsync($"event: snapshot\ndata: {snap}\n\n", ct);
+    }
     foreach (var e in backlog) await Write(e);
     await ctx.Response.Body.FlushAsync(ct);
 
@@ -72,12 +88,19 @@ app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) 
 // Burst load: strictly increasing values guarantee every one is a real change (SCRUM-5 load test).
 app.MapPost("/admin/burst", (SensorHub hub, int count = 1000) =>
 {
-    var before = hub.Emitted;
+    var before = hub.Stats().Emitted;
     for (var n = 0; n < count; n++) hub.Publish("burst", n);
-    return Results.Ok(new { requested = count, emitted = hub.Emitted - before });
+    return Results.Ok(new { requested = count, emitted = hub.Stats().Emitted - before });
 });
 
-app.MapGet("/admin/stats", (SensorHub hub) =>
-    Results.Ok(new { emitted = hub.Emitted, skipped = hub.Skipped, subscribers = hub.SubscriberCount }));
+app.MapGet("/admin/stats", (SensorHub hub) => Results.Ok(hub.Stats()));
+
+// Chaos hooks: trigger resilience scenarios on demand.
+app.MapPost("/admin/chaos/drop", (SensorHub hub) => Results.Ok(new { dropped = hub.DropAll() }));
+app.MapPost("/admin/chaos/outage", (SensorHub hub, int seconds = 10) =>
+{
+    hub.StartOutage(seconds);
+    return Results.Ok(new { outageSeconds = seconds });
+});
 
 app.Run();

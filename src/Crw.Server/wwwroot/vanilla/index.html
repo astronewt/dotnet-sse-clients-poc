@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Vanilla SSE client — SCRUM-5</title>
   <style>
-    body { font: 15px/1.5 system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; color: #0f172a; }
-    h1 { font-size: 1.4rem; }
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; color: #0f172a; }
+    h1 { font-size: 1.4rem; margin-bottom: .25rem; }
     .bar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
     button { font: inherit; padding: .4rem .8rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
     button:hover { background: #f8fafc; }
@@ -14,20 +14,27 @@
     .ok { background: #dcfce7; color: #166534; }
     .bad { background: #fee2e2; color: #991b1b; }
     .wait { background: #fef9c3; color: #854d0e; }
-    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-    th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #e2e8f0; font-variant-numeric: tabular-nums; }
-    th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: 1rem 0; }
-    .card { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
-    .card .n { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .card .l { font-size: .8rem; color: #64748b; }
-    .flash { animation: flash .6s ease-out; }
-    @keyframes flash { from { background: #dbeafe; } to { background: transparent; } }
+    .stats { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: .5rem 0 1rem; font-variant-numeric: tabular-nums; }
+    .stats b { font-size: 1.3rem; display: block; }
+    .stats .l { font-size: .75rem; color: #64748b; text-transform: uppercase; letter-spacing: .03em; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+    .tile { border: 1px solid #e2e8f0; border-radius: 8px; padding: .45rem .5rem; position: relative; }
+    .tile .id { font-size: .68rem; color: #64748b; }
+    .tile .v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tile .dot { position: absolute; top: .5rem; right: .5rem; width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
+    .tile.off { background: #f8fafc; color: #94a3b8; }
+    .tile.off .v { color: #94a3b8; }
+    .tile.off .dot { background: #ef4444; }
+    .tile.flash { animation: flash .5s ease-out; }
+    @keyframes flash { from { box-shadow: 0 0 0 2px #3b82f6 inset; } to { box-shadow: none; } }
+    .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; }
+    .toast { background: #7f1d1d; color: #fff; padding: .5rem .8rem; border-radius: 8px; font-size: .9rem; box-shadow: 0 4px 12px rgba(0,0,0,.25); animation: toastin .2s ease-out; }
+    @keyframes toastin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   </style>
 </head>
 <body>
   <h1>Vanilla JS SSE client</h1>
-  <p>Native <code>EventSource</code>. Verifies order, loss, and duplication live. Serve over HTTPS to exercise HTTP/2.</p>
+  <p>Native <code>EventSource</code>. Hundreds of sensors, live online/offline status. Serve over HTTPS to exercise HTTP/2.</p>
 
   <div class="bar">
     <span>Connection:</span> <span id="state" class="pill wait">connecting…</span>
@@ -36,71 +43,91 @@
     <button id="reconnect">Force reconnect</button>
   </div>
 
-  <div class="grid">
-    <div class="card"><div class="n" id="m-received">0</div><div class="l">events received</div></div>
-    <div class="card"><div class="n" id="m-seq">0</div><div class="l">last seq</div></div>
-    <div class="card"><div class="n" id="m-gaps">0</div><div class="l">gaps (loss)</div></div>
-    <div class="card"><div class="n" id="m-dupes">0</div><div class="l">duplicates</div></div>
-    <div class="card"><div class="n" id="m-ooo">0</div><div class="l">out of order</div></div>
-    <div class="card"><div class="n" id="m-lat">–</div><div class="l">latency ms (last)</div></div>
+  <div class="stats">
+    <div><b id="s-total">0</b><span class="l">sensors</span></div>
+    <div><b id="s-online" style="color:#166534">0</b><span class="l">online</span></div>
+    <div><b id="s-offline" style="color:#991b1b">0</b><span class="l">offline</span></div>
+    <div><b id="s-events">0</b><span class="l">events</span></div>
+    <div><b id="s-lat">–</b><span class="l">latency ms</span></div>
+    <div><b id="s-gaps">0</b><span class="l">gaps</span></div>
+    <div><b id="s-dupes">0</b><span class="l">dupes</span></div>
+    <div><b id="s-ooo">0</b><span class="l">out of order</span></div>
   </div>
 
-  <table>
-    <thead><tr><th>Sensor</th><th>Value</th><th>Seq</th><th>Latency ms</th><th>Updated</th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="grid" id="grid"></div>
 
-  <p id="verdict"></p>
+  <div class="toasts" id="toasts"></div>
 
   <script>
     const $ = id => document.getElementById(id);
-    const state = {
-      received: 0, lastSeq: 0, gaps: 0, dupes: 0, ooo: 0,
-      sensors: new Map(), // id -> {value, seq, latency, count}
-    };
+    const grid = $('grid');
+    const tiles = new Map();   // sensorId -> { el, vEl, online }
+    let received = 0, lastSeq = 0, gaps = 0, dupes = 0, ooo = 0, online = 0;
 
-    function setPill(el, text, cls) { el.textContent = text; el.className = 'pill ' + cls; }
+    const setPill = (el, text, cls) => { el.textContent = text; el.className = 'pill ' + cls; };
 
-    function render() {
-      $('m-received').textContent = state.received;
-      $('m-seq').textContent = state.lastSeq;
-      $('m-gaps').textContent = state.gaps;
-      $('m-dupes').textContent = state.dupes;
-      $('m-ooo').textContent = state.ooo;
-
-      const rows = $('rows');
-      rows.innerHTML = '';
-      [...state.sensors.entries()].sort().forEach(([id, s]) => {
-        const tr = document.createElement('tr');
-        tr.className = 'flash';
-        tr.innerHTML = `<td>${id}</td><td>${s.value}</td><td>${s.seq}</td><td>${s.latency}</td><td>${s.count}×</td>`;
-        rows.appendChild(tr);
-      });
-
-      const clean = state.gaps === 0 && state.dupes === 0 && state.ooo === 0;
-      $('verdict').innerHTML = state.received === 0 ? '' :
-        clean ? '✅ Contiguous stream: no loss, no duplicates, correct order.'
-              : '❌ Integrity problem detected — see counters above.';
+    function upsertTile(id, value, isOnline, flash) {
+      let t = tiles.get(id);
+      if (!t) {
+        const el = document.createElement('div');
+        el.className = 'tile';
+        el.innerHTML = `<div class="dot"></div><div class="id">${id}</div><div class="v"></div>`;
+        grid.appendChild(el);
+        t = { el, vEl: el.querySelector('.v'), online: true };
+        tiles.set(id, t);
+        online++;
+      }
+      t.vEl.textContent = value;
+      if (t.online !== isOnline) {
+        t.online = isOnline;
+        online += isOnline ? 1 : -1;
+      }
+      t.el.classList.toggle('off', !isOnline);
+      if (flash) { t.el.classList.remove('flash'); void t.el.offsetWidth; t.el.classList.add('flash'); }
     }
 
-    function onEvent(e) {
+    function renderStats() {
+      $('s-total').textContent = tiles.size;
+      $('s-online').textContent = online;
+      $('s-offline').textContent = tiles.size - online;
+      $('s-events').textContent = received;
+      $('s-gaps').textContent = gaps;
+      $('s-dupes').textContent = dupes;
+      $('s-ooo').textContent = ooo;
+    }
+
+    function onSnapshot(e) {
       const d = JSON.parse(e.data);
-      const seq = d.seq;
+      lastSeq = d.seq;                          // start integrity tracking from here
+      grid.innerHTML = ''; tiles.clear(); online = 0;
+      for (const s of d.sensors) upsertTile(s.sensorId, s.value, s.online, false);
+      renderStats();
+    }
 
-      // seq is global and contiguous (every emitted event increments it by 1).
-      if (state.lastSeq !== 0) {
-        if (seq === state.lastSeq) { state.dupes++; }
-        else if (seq < state.lastSeq) { state.ooo++; }
-        else if (seq > state.lastSeq + 1) { state.gaps += seq - state.lastSeq - 1; }
+    function onSensor(e) {
+      const d = JSON.parse(e.data);
+      if (lastSeq !== 0) {
+        if (d.seq === lastSeq) dupes++;
+        else if (d.seq < lastSeq) ooo++;
+        else if (d.seq > lastSeq + 1) gaps += d.seq - lastSeq - 1;
       }
-      state.lastSeq = Math.max(state.lastSeq, seq);
-      state.received++;
+      lastSeq = Math.max(lastSeq, d.seq);
+      received++;
+      $('s-lat').textContent = Date.now() - d.ts;
+      const prev = tiles.get(d.sensorId);
+      if (prev && prev.online && !d.online) showToast(d.sensorId);   // just went offline
+      upsertTile(d.sensorId, d.value, d.online, true);
+      renderStats();
+    }
 
-      const latency = Date.now() - d.ts;
-      $('m-lat').textContent = latency;
-      const prev = state.sensors.get(d.sensorId);
-      state.sensors.set(d.sensorId, { value: d.value, seq, latency, count: (prev?.count ?? 0) + 1 });
-      render();
+    const toastBox = $('toasts');
+    function showToast(sensorId) {
+      if (toastBox.childElementCount >= 5) toastBox.firstChild.remove();
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.innerHTML = `🔴 <strong>${sensorId}</strong> went offline`;
+      toastBox.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
     }
 
     let es;
@@ -108,24 +135,18 @@
       es = new EventSource('/sse');
       es.addEventListener('open', () => setPill($('state'), 'connected', 'ok'));
       es.addEventListener('error', () => setPill($('state'), 'reconnecting…', 'bad'));
-      es.addEventListener('sensor', onEvent);
+      es.addEventListener('snapshot', onSnapshot);
+      es.addEventListener('sensor', onSensor);
     }
     connect();
 
-    // Report the negotiated HTTP protocol (h2 vs http/1.1) for the SSE request.
-    setTimeout(async () => {
-      try {
-        const r = performance.getEntriesByType('resource').find(e => e.name.includes('/sse'));
-        const proto = r?.nextHopProtocol || '(unknown)';
-        setPill($('proto'), 'protocol: ' + proto, proto === 'h2' ? 'ok' : 'wait');
-      } catch { /* ignore */ }
+    setTimeout(() => {
+      const r = performance.getEntriesByType('resource').find(e => e.name.includes('/sse'));
+      const proto = r?.nextHopProtocol || '(unknown)';
+      setPill($('proto'), 'protocol: ' + proto, proto === 'h2' ? 'ok' : 'wait');
     }, 1500);
 
-    $('burst').onclick = async () => {
-      const r = await fetch('/admin/burst?count=1000', { method: 'POST' });
-      const j = await r.json();
-      console.log('burst', j);
-    };
+    $('burst').onclick = () => fetch('/admin/burst?count=1000', { method: 'POST' });
     $('reconnect').onclick = () => { es.close(); connect(); };
   </script>
 </body>

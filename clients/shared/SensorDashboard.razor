@@ -1,0 +1,125 @@
+@using Microsoft.AspNetCore.Components
+@inject SseSensorClient Sse
+@implements IAsyncDisposable
+
+<div class="crw">
+    <div class="bar">
+        <span>Connection:</span>
+        <span class="pill @(_status == "connected" ? "ok" : _status == "reconnecting" ? "bad" : "wait")">@_status</span>
+        <button @onclick="() => Sse.FireBurstAsync()">Burst 1000</button>
+    </div>
+
+    <div class="stats">
+        <div class="stat"><b>@_sensors.Count</b><span class="l">sensors</span></div>
+        <div class="stat"><b style="color:#166534">@_online</b><span class="l">online</span></div>
+        <div class="stat"><b style="color:#991b1b">@(_sensors.Count - _online)</b><span class="l">offline</span></div>
+        <div class="stat"><b>@_received</b><span class="l">events</span></div>
+        <div class="stat"><b>@(_lastLatency?.ToString() ?? "–")</b><span class="l">latency ms</span></div>
+        <div class="stat"><b class="@(_gaps > 0 ? "bad-text" : "")">@_gaps</b><span class="l">gaps</span></div>
+        <div class="stat"><b class="@(_dupes > 0 ? "bad-text" : "")">@_dupes</b><span class="l">dupes</span></div>
+        <div class="stat"><b class="@(_ooo > 0 ? "bad-text" : "")">@_ooo</b><span class="l">out of order</span></div>
+    </div>
+
+    <div class="grid">
+        @foreach (var (id, s) in _ordered)
+        {
+            <div class="tile @(s.Online ? "" : "off")">
+                <div class="dot"></div>
+                <div class="id">@id</div>
+                <div class="v">@s.Value</div>
+            </div>
+        }
+    </div>
+
+    <div class="toasts">
+        @foreach (var t in _toasts)
+        {
+            <div class="toast" @key="t.Id">🔴 <strong>@t.SensorId</strong> went offline</div>
+        }
+    </div>
+</div>
+
+@code {
+    struct S { public int Value; public bool Online; }
+    sealed record Toast(int Id, string SensorId, long ExpiresAtTick);
+
+    const int ToastLifetimeTicks = 40;  // ~4s at 100ms render ticks
+    const int MaxToasts = 5;
+
+    readonly Dictionary<string, S> _sensors = new();
+    IEnumerable<KeyValuePair<string, S>> _ordered = Array.Empty<KeyValuePair<string, S>>();
+    readonly List<Toast> _toasts = new();
+    readonly CancellationTokenSource _cts = new();
+
+    string _status = "connecting";
+    int _received, _gaps, _dupes, _ooo, _online, _toastId;
+    long _lastSeq, _tick;
+    long? _lastLatency;
+    bool _dirty = true;
+
+    protected override void OnInitialized()
+    {
+        _ = Sse.RunAsync(OnSnapshot, OnSensor, OnStatus, () => _lastSeq, _cts.Token);
+        _ = RenderLoop(_cts.Token);
+    }
+
+    void OnStatus(string s) { _status = s; _dirty = true; }
+
+    Task OnSnapshot(SnapshotMsg snap)
+    {
+        _lastSeq = snap.Seq;
+        _sensors.Clear(); _online = 0;
+        foreach (var s in snap.Sensors)
+        {
+            _sensors[s.SensorId] = new S { Value = s.Value, Online = s.Online };
+            if (s.Online) _online++;
+        }
+        _dirty = true;
+        return Task.CompletedTask;
+    }
+
+    Task OnSensor(SensorMsg d)
+    {
+        if (_lastSeq != 0)
+        {
+            if (d.Seq == _lastSeq) _dupes++;
+            else if (d.Seq < _lastSeq) _ooo++;
+            else if (d.Seq > _lastSeq + 1) _gaps += (int)(d.Seq - _lastSeq - 1);
+        }
+        _lastSeq = Math.Max(_lastSeq, d.Seq);
+        _received++;
+        _lastLatency = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - d.Ts;
+
+        var existed = _sensors.TryGetValue(d.SensorId, out var prev);
+        var wasOnline = existed && prev.Online;
+        _sensors[d.SensorId] = new S { Value = d.Value, Online = d.Online };
+        if (wasOnline != d.Online) _online += d.Online ? 1 : -1;
+
+        if (existed && wasOnline && !d.Online) AddToast(d.SensorId);   // just went offline
+
+        _dirty = true;
+        return Task.CompletedTask;
+    }
+
+    void AddToast(string sensorId)
+    {
+        _toasts.Add(new Toast(++_toastId, sensorId, _tick + ToastLifetimeTicks));
+        if (_toasts.Count > MaxToasts) _toasts.RemoveRange(0, _toasts.Count - MaxToasts);
+    }
+
+    async Task RenderLoop(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100)); // ~10 fps
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            _tick++;
+            var expired = _toasts.RemoveAll(t => t.ExpiresAtTick <= _tick) > 0;
+            if (!_dirty && !expired) continue;
+            _dirty = false;
+            _ordered = _sensors.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToArray();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public async ValueTask DisposeAsync() { await _cts.CancelAsync(); _cts.Dispose(); }
+}

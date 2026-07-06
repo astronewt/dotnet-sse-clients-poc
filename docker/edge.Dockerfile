@@ -9,13 +9,12 @@ RUN npm ci
 COPY clients/react/ ./
 RUN npm run build
 
-# --- Blazor build ---
+# --- Blazor build (WASM host + shared Razor Class Library) ---
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS blazor
 WORKDIR /src
-COPY clients/blazor/Crw.BlazorClient.csproj ./
-RUN dotnet restore
-COPY clients/blazor/ ./
-RUN dotnet publish -c Release -o /out
+COPY clients/shared/ shared/
+COPY clients/blazor/ blazor/
+RUN dotnet publish blazor/Crw.BlazorClient.csproj -c Release -o /out
 # Serve under the /blazor/ subpath.
 RUN sed -i 's#<base href="/" />#<base href="/blazor/" />#' /out/wwwroot/index.html
 
