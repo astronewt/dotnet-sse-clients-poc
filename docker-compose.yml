@@ -17,6 +17,12 @@ services:
       - "8080"
     ports:
       - "5020:8080"   # direct API / vanilla client over http, for debugging
+    environment:
+      # Simulate a real network (clients are never on the server box). Tune or remove to taste.
+      - Latency__Enabled=true
+      - Latency__StreamJitterMaxMs=40
+      # Uncomment to also get random signal-loss / downtime:
+      # - Chaos__Enabled=true
 
   edge:
     build:

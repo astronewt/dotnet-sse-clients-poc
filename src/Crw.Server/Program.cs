@@ -17,7 +17,29 @@ builder.Services.AddSingleton<SensorHub>();
 builder.Services.AddHostedService<SensorSimulator>();
 builder.Services.AddHostedService<ChaosService>();
 
+// Network latency simulation (off unless configured — see LatencyOptions / "Latency" config).
+var latency = new LatencyOptions();
+builder.Configuration.GetSection("Latency").Bind(latency);
+builder.Services.AddSingleton(latency);
+
 var app = builder.Build();
+
+// Simulate request round-trip over a network: delay the start of every request.
+if (latency.Enabled)
+{
+    app.Logger.LogInformation("Network latency simulation ON: base {Min}-{Max}ms, {Pct:P0} spikes {SMin}-{SMax}ms, stream jitter {Jit}ms",
+        latency.BaseMinMs, latency.BaseMaxMs, latency.SpikeChance, latency.SpikeMinMs, latency.SpikeMaxMs, latency.StreamJitterMaxMs);
+    app.Use(async (ctx, next) =>
+    {
+        var d = latency.NextRequestDelayMs();
+        if (d > 0)
+        {
+            try { await Task.Delay(d, ctx.RequestAborted); }
+            catch (OperationCanceledException) { return; }
+        }
+        await next();
+    });
+}
 
 app.UseCors();
 app.UseDefaultFiles();
@@ -26,7 +48,7 @@ app.UseStaticFiles();
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
 // --- SSE stream -------------------------------------------------------------
-app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) =>
+app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, LatencyOptions latency, CancellationToken ct) =>
 {
     // Simulated downtime: refuse the connection so clients exercise their reconnect/backoff.
     if (hub.IsOutage(out var retryAfter))
@@ -77,6 +99,10 @@ app.MapGet("/sse", async (HttpContext ctx, SensorHub hub, CancellationToken ct) 
                 continue;
             }
             if (!await ready) break;
+            // Hold the batch briefly before delivering (simulates in-flight time). One delay per
+            // batch — events arriving during it coalesce, so latency stays bounded under load.
+            var j = latency.NextStreamJitterMs();
+            if (j > 0) await Task.Delay(j, ct);
             while (reader.TryRead(out var e)) await Write(e);
             await ctx.Response.Body.FlushAsync(ct);
         }

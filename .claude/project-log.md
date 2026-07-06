@@ -38,6 +38,8 @@ Goal: prove SSE reliably delivers central-server updates to the FE, low latency,
 | D17 | Robust resume ✅ | On reconnect the server sends a **backlog only if every event after `Last-Event-ID` is still buffered** (`lastId <= seq && lastId >= oldestHistorySeq-1`). Otherwise (new client, aged-out resume point, or server restart where seq reset) it sends a **fresh snapshot**. Confirmed the right call by the user. | Closes the earlier known limitation: a long-disconnected client no longer resumes into a silent gap. |
 | D18 | Chaos / resilience simulation | Backend can simulate **signal loss** (`POST /admin/chaos/drop` — force-drop all connections) and **downtime** (`POST /admin/chaos/outage?seconds=N` — `/sse` returns 503 + Retry-After, then recovers). Opt-in **random auto-chaos** via `Chaos:Enabled` (env `Chaos__Enabled=true`), interval `Chaos:MinIntervalSec`/`MaxIntervalSec`. Default OFF. | User asked the backend to randomly trigger signal loss / restart / downtime to exercise client reconnect/resume. |
 | D19 | Docker scope | `docker compose up -d --build` runs the server + all **three web clients** via the single nginx edge (one origin). **WPF is intentionally excluded** — it's a native Windows desktop GUI, not a web app. Edge Dockerfile fixed to include the shared RCL in the Blazor build. | User wanted every client to start from one command; clarified web vs native boundary. |
+| D20 | Network latency simulation | Config-driven (`Latency:*`): a base delay (25–80ms) on every request with ~5% spikes (300–1200ms), plus optional per-**batch** SSE jitter (`StreamJitterMaxMs`). **Off in local dev, ON in Docker** (`Latency__Enabled=true`, `StreamJitterMaxMs=40`) since the containerized topology mimics a real deployment. Burst load test is effectively unaffected (jitter is once-per-flush). | Clients are never on the server box; localhost hides latency/spike behavior. |
+| D21 (WPF fix) | WPF target framework | WPF host must target a **versioned** Windows TFM (`net10.0-windows10.0.19041.0`), not bare `net10.0-windows` — otherwise WebView2's composition control throws `FileNotFoundException: Microsoft.Windows.SDK.NET` at launch and the window never appears. | The app built fine but crashed on start; this was the cause. |
 
 ## Project structure (after D15)
 
@@ -59,6 +61,11 @@ Full write-up in [CLIENTS.md](../CLIENTS.md). Key findings:
 - **`EventSource` (vanilla + React) cannot set request headers** → no `Authorization` header on the stream. Workarounds: cookie auth, token in query (leaks), or a fetch-based SSE polyfill. **Blazor's `HttpClient` has no such limit.** This is a decisive factor if authenticated streams are required while staying in-browser.
 - WASM Blazor **requires** `request.SetBrowserResponseStreamingEnabled(true)` + `ResponseHeadersRead` or SSE never flows; this line is WASM-only (native/desktop `HttpClient` streams by default).
 - Rendering hundreds of tiles: React and Blazor need render throttling (~10 fps) to stay smooth under high event rates; vanilla uses targeted DOM updates.
+
+### Network latency simulation (2026-07-06)
+- Goal: stop hiding real-world latency/spikes behind localhost. Added request-level delay middleware + optional SSE stream jitter (`LatencyOptions`, D20).
+- **Gotcha found & fixed:** per-**event** serialized jitter *accumulates* — at ~40 events/s × 20ms avg the stream falls behind real time (measured latency climbed 30→291ms and rising). Fix: apply one delay per **flush batch** *before* writing (events arriving during the hold coalesce). Also had to delay *before* the write, not after — Kestrel auto-flushes on write, so a post-write delay only paced batches (latency ~0) instead of delaying delivery.
+- **Validated:** request latency ~42–87ms with occasional spikes; per-event stream latency bounded (median 16ms, p95 47ms, no climb over 6s); burst POST still 0.07s and correct (1000 emitted).
 
 ### Chaos + robust resume validation (2026-07-06)
 Validated against local server:

@@ -61,7 +61,10 @@ First time for HTTPS: `dotnet dev-certs https --trust`.
 | `POST /admin/chaos/drop` | **Signal loss** — drop all live connections; clients reconnect + resume. |
 | `POST /admin/chaos/outage?seconds=10` | **Downtime** — `/sse` returns 503 for the window, then recovers. |
 
-Random auto-chaos: set `Chaos__Enabled=true` (env) to have the server randomly drop/outage on its own.
+Config (env vars):
+- `Chaos__Enabled=true` — server randomly drops connections / triggers outages on its own.
+- `Latency__Enabled=true`, `Latency__StreamJitterMaxMs=40` — simulate a real network: base delay + occasional spikes on requests, plus bounded per-batch stream jitter. **On by default in Docker**, off in local dev.
+- `Sensors__Count=200`, `Sensors__OfflineAfterMs=4000`, … — tune the simulated sensor fleet.
 
 ## Key design points
 
